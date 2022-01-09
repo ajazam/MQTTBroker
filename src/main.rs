@@ -1,4 +1,7 @@
+mod decode;
+mod encode;
 mod mqttbroker;
+
 #[cfg(test)]
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
@@ -10,7 +13,7 @@ use bytes::{Buf, BufMut, BytesMut};
 
 fn main() {
     println!("Hello, world!");
-    let mut b = BytesMut::with_capacity(100);
+    let b = BytesMut::with_capacity(100);
 
     let mut b1 = BytesMut::with_capacity(100);
     b1.put_u8(1);

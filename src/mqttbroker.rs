@@ -1,11 +1,25 @@
-mod mqtt_broker {
+pub mod mqtt_broker {
+    use crate::encode;
     use crate::mqttbroker::mqtt_broker::types::{
         BinaryDataT, ByteT, FourByteIntegerT, TwoByteIntegerT, Utf8stringPairT,
         VariableByteIntegerT,
     };
+    use std::convert::TryFrom;
+    use std::hash::{Hash, Hasher};
+
+    use crate::mqttbroker::mqtt_broker::PropertyIdentifiers::{
+        AssignedClientIdentifier, AuthenticationData, AuthenticationMethod, ContentType,
+        CorrelationData, MaximumPacketSize, MaximumQos, MessageExpiryInterval,
+        PayloadFormatIndicator, ReasonString, ReceiveMaximum, RequestProblemInformation,
+        RequestResponseInformation, ResponseInformation, ResponseTopic, RetainAvailable,
+        ServerKeepAlive, ServerReference, SessionExpiryInterval, SharedSubscriptionAvailable,
+        SubscriptionIdentifier, SubscriptionIdentifierAvailable, TopicAlias, TopicAliasMaximum,
+        UserProperty, WildcardSubscriptionAvailable, WillDelayInterval,
+    };
+    use bytes::{BufMut, BytesMut};
 
     pub mod types {
-        #[derive(Debug, PartialEq)]
+        #[derive(Debug, PartialEq, Eq, Hash, Clone)]
         pub struct Utf8stringPairT {
             pub key: String,
             pub value: String,
@@ -14,88 +28,177 @@ mod mqtt_broker {
         pub type FourByteIntegerT = u32;
         pub type BinaryDataT = Vec<u8>;
         pub type TwoByteIntegerT = u16;
-        pub type VariableByteIntegerT = u32;
+        pub type VariableByteIntegerT = u32; // max is 268_435_455
+
+        pub const MAX_VARIABLE_BYTE_INTEGER: u32 = 268_435_455;
     }
 
-    #[derive(Debug, PartialEq)]
-    pub enum Property {
-        Byte {
-            value: ByteT,
-            property_identifier: u8,
-        },
-        FourByteInteger {
-            value: FourByteIntegerT,
-            property_identifier: u8,
-        },
-        UTF8EncodedString {
-            value: String,
-            property_identifier: u8,
-        },
-        BinaryData {
-            value: BinaryDataT,
-            property_identifier: u8,
-        },
-        TwoByteInteger {
-            value: TwoByteIntegerT,
-            property_identifier: u8,
-        },
-        UTF8StringPair {
-            value: Utf8stringPairT,
-            property_identifier: u8,
-        },
-        VariableByteInteger {
-            value: VariableByteIntegerT,
-            property_identifier: u8,
-        },
+    #[derive(Debug, PartialEq, Eq, Hash, Clone)]
+    pub enum PropertyElement {
+        Byte { value: ByteT },
+        FourByteInteger { value: FourByteIntegerT },
+        UTF8EncodedString { value: String },
+        BinaryData { value: BinaryDataT },
+        TwoByteInteger { value: TwoByteIntegerT },
+        UTF8StringPair { value: Utf8stringPairT },
+        VariableByteInteger { value: VariableByteIntegerT },
     }
-    pub mod property_identifiers {
-        pub const PAYLOAD_FORMAT_INDICATOR: u8 = 0x01;
-        pub const MESSAGE_EXPIRY_INTERVAL: u8 = 0x02;
-        pub const CONTENT_TYPE: u8 = 0x03;
-        pub const RESPONSE_TOPIC: u8 = 0x08;
-        pub const CORRELATION_DATA: u8 = 0x09;
-        pub const SUBSCRIPTION_IDENTIFIER: u8 = 0x0b;
-        pub const SESSION_EXPIRY_INTERVAL: u8 = 0x11;
-        pub const ASSIGNED_CLIENT_IDENTIFIER: u8 = 0x12;
-        pub const SERVER_KEEP_ALIVE: u8 = 0x13;
-        pub const AUTHENTICATION_METHOD: u8 = 0x15;
-        pub const AUTHENTICATION_DATA: u8 = 0x16;
-        pub const REQUEST_PROBLEM_INFORMATION: u8 = 0x17;
-        pub const WILL_DELAY_INTERVAL: u8 = 0x18;
-        pub const REQUEST_RESPONSE_INFORMATION: u8 = 0x19;
-        pub const RESPONSE_INFORMATION: u8 = 0x1a;
-        pub const SERVER_REFERENCE: u8 = 0x1c;
-        pub const REASON_STRING: u8 = 0x1f;
-        pub const RECEIVE_MAXIMUM: u8 = 0x21;
-        pub const TOPIC_ALIAS_MAXIMUM: u8 = 0x22;
-        pub const TOPIC_ALIAS: u8 = 0x23;
-        pub const MAXIMUM_QOS: u8 = 0x24;
-        pub const RETAIN_AVAILABLE: u8 = 0x25;
-        pub const USER_PROPERTY: u8 = 0x26;
-        pub const MAXIMUM_PACKET_SIZE: u8 = 0x27;
-        pub const WILDCARD_SUBSCRIPTION_AVAILABLE: u8 = 0x28;
-        pub const SUBSCRIPTION_IDENTIFIER_AVAILABLE: u8 = 0x29;
-        pub const SHARED_SUBSCRIPTION_AVAILABLE: u8 = 0x2a;
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub struct Property {
+        pub element_value: PropertyElement,
+        pub property_identifier: u8,
     }
 
-    pub mod packet_types {
-        pub const CONNECT: u8 = 0x01;
-        pub const CONNACK: u8 = 0x02;
-        pub const PUBLISH: u8 = 0x03;
-        pub const PUBACK: u8 = 0x04;
-        pub const PUBREC: u8 = 0x05;
-        pub const PUBREL: u8 = 0x06;
-        pub const PUBCOMP: u8 = 0x07;
-        pub const SUBSCRIBE: u8 = 0x08;
-        pub const SUBACK: u8 = 0x09;
-        pub const UNSUBSCRIBE: u8 = 0x0a;
-        pub const UNSUBACK: u8 = 0x0b;
-        pub const PINGREQ: u8 = 0x0c;
-        pub const PINGRESP: u8 = 0x0d;
-        pub const DISCONNECT: u8 = 0x0e;
-        pub const AUTH: u8 = 0x0f;
+    impl Property {
+        pub fn new(ev: PropertyElement, pi: u8) -> Self {
+            Property {
+                element_value: ev,
+                property_identifier: pi,
+            }
+        }
     }
 
+    impl Property {
+        pub fn encode(&self, encoded: &mut Vec<u8>) {
+            encoded.put_u8(self.property_identifier);
+            match self.element_value {
+                PropertyElement::Byte { ref value } => {
+                    encoded.put_u8(*value);
+                }
+
+                PropertyElement::FourByteInteger { ref value } => {
+                    encoded.put_u32(*value);
+                }
+
+                PropertyElement::UTF8EncodedString { ref value } => {
+                    let mut encoded_bytes = BytesMut::with_capacity(200);
+                    encode::utf8_encoded_string(value, &mut encoded_bytes);
+                    encoded.put(encoded_bytes);
+                }
+
+                PropertyElement::BinaryData { ref value } => {
+                    let mut encoded_bytes = BytesMut::with_capacity(200);
+                    let src = BytesMut::from(value.as_slice());
+                    encode::binary_data(&src, &mut encoded_bytes);
+                    encoded.put(encoded_bytes);
+                }
+
+                PropertyElement::TwoByteInteger { ref value } => encoded.put_u16(*value),
+
+                PropertyElement::UTF8StringPair { ref value } => {
+                    let mut encoded_bytes = BytesMut::with_capacity(200);
+                    encode::utf8_string_pair(&value.key, &value.value, &mut encoded_bytes);
+                    encoded.put(encoded_bytes);
+                }
+
+                PropertyElement::VariableByteInteger { ref value } => {
+                    let mut encoded_bytes = BytesMut::with_capacity(200);
+                    encode::variable_byte_integer(*value, &mut encoded_bytes);
+                    encoded.put(encoded_bytes);
+                }
+            }
+        }
+    }
+
+    impl Into<u8> for Property {
+        fn into(self) -> u8 {
+            self.property_identifier
+        }
+    }
+
+    #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
+    #[repr(u8)]
+    pub enum PropertyIdentifiers {
+        PayloadFormatIndicator = 0x01,
+        MessageExpiryInterval = 0x02,
+        ContentType = 0x03,
+        ResponseTopic = 0x08,
+        CorrelationData = 0x09,
+        SubscriptionIdentifier = 0x0b,
+        SessionExpiryInterval = 0x11,
+        AssignedClientIdentifier = 0x12,
+        ServerKeepAlive = 0x13,
+        AuthenticationMethod = 0x15,
+        AuthenticationData = 0x16,
+        RequestProblemInformation = 0x17,
+        WillDelayInterval = 0x18,
+        RequestResponseInformation = 0x19,
+        ResponseInformation = 0x1a,
+        ServerReference = 0x1c,
+        ReasonString = 0x1f,
+        ReceiveMaximum = 0x21,
+        TopicAliasMaximum = 0x22,
+        TopicAlias = 0x23,
+        MaximumQos = 0x24,
+        RetainAvailable = 0x25,
+        UserProperty = 0x26,
+        MaximumPacketSize = 0x27,
+        WildcardSubscriptionAvailable = 0x28,
+        SubscriptionIdentifierAvailable = 0x29,
+        SharedSubscriptionAvailable = 0x2a,
+    }
+
+    impl From<Property> for PropertyIdentifiers {
+        fn from(p: Property) -> Self {
+            PropertyIdentifiers::try_from(p.property_identifier).unwrap()
+        }
+    }
+
+    impl TryFrom<u8> for PropertyIdentifiers {
+        type Error = ();
+        fn try_from(item: u8) -> Result<Self, Self::Error> {
+            match item {
+                0x01 => Ok(PayloadFormatIndicator),
+                0x02 => Ok(MessageExpiryInterval),
+                0x03 => Ok(ContentType),
+                0x08 => Ok(ResponseTopic),
+                0x09 => Ok(CorrelationData),
+                0x0b => Ok(SubscriptionIdentifier),
+                0x11 => Ok(SessionExpiryInterval),
+                0x12 => Ok(AssignedClientIdentifier),
+                0x13 => Ok(ServerKeepAlive),
+                0x15 => Ok(AuthenticationMethod),
+                0x16 => Ok(AuthenticationData),
+                0x17 => Ok(RequestProblemInformation),
+                0x18 => Ok(WillDelayInterval),
+                0x19 => Ok(RequestResponseInformation),
+                0x1a => Ok(ResponseInformation),
+                0x1c => Ok(ServerReference),
+                0x1f => Ok(ReasonString),
+                0x21 => Ok(ReceiveMaximum),
+                0x22 => Ok(TopicAliasMaximum),
+                0x23 => Ok(TopicAlias),
+                0x24 => Ok(MaximumQos),
+                0x25 => Ok(RetainAvailable),
+                0x26 => Ok(UserProperty),
+                0x27 => Ok(MaximumPacketSize),
+                0x28 => Ok(WildcardSubscriptionAvailable),
+                0x29 => Ok(SubscriptionIdentifierAvailable),
+                0x2a => Ok(SharedSubscriptionAvailable),
+                _ => Err(()),
+            }
+        }
+    }
+
+    #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
+    #[repr(u8)]
+    pub enum packet_types {
+        CONNECT = 0x01,
+        CONNACK = 0x02,
+        PUBLISH = 0x03,
+        PUBACK = 0x04,
+        PUBREC = 0x05,
+        PUBREL = 0x06,
+        PUBCOMP = 0x07,
+        SUBSCRIBE = 0x08,
+        SUBACK = 0x09,
+        UNSUBSCRIBE = 0x0a,
+        UNSUBACK = 0x0b,
+        PINGREQ = 0x0c,
+        PINGRESP = 0x0d,
+        DISCONNECT = 0x0e,
+        AUTH = 0x0f,
+    }
     pub mod reason_codes {
         pub const SUCCESS: u8 = 0x00;
         pub const NORMAL_DISCONNECTION: u8 = 0x00;
@@ -114,7 +217,7 @@ mod mqtt_broker {
         pub const UNSUPPORTED_PROTOCOL_VERSION: u8 = 0x84;
         pub const CLIENT_IDENTIFIER_NOT_VALID: u8 = 0x85;
         pub const BAD_USER_NAME_OR_PASSWORD: u8 = 0x86;
-        pub const NOT_AUTHORISED: u8 = 0x87;
+        pub const NOT_AUTHORIZED: u8 = 0x87;
         pub const SERVER_UNAVAILABLE: u8 = 0x88;
         pub const SERVER_BUSY: u8 = 0x89;
         pub const BANNED: u8 = 0x8a;
@@ -139,1391 +242,24 @@ mod mqtt_broker {
         pub const SERVER_MOVED: u8 = 0x9d;
         pub const SHARED_SUBSCRIPTIONS_NOT_SUPPORTED: u8 = 0x9e;
         pub const CONNECTION_RATE_EXCEEDED: u8 = 0x9f;
-        pub const MAXIMUM_CONECT_TIME: u8 = 0xa0;
+        pub const MAXIMUM_CONNECT_TIME: u8 = 0xa0;
         pub const SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED: u8 = 0xa1;
         pub const WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED: u8 = 0xa2;
     }
 
-    pub mod encode {
-        use crate::mqttbroker::mqtt_broker::property_identifiers::{
-            CONTENT_TYPE, CORRELATION_DATA, MESSAGE_EXPIRY_INTERVAL, PAYLOAD_FORMAT_INDICATOR,
-            RESPONSE_TOPIC, SUBSCRIPTION_IDENTIFIER,
-        };
-        use crate::mqttbroker::mqtt_broker::types::{
-            FourByteIntegerT, TwoByteIntegerT, VariableByteIntegerT,
-        };
-        use bytes::{BufMut, BytesMut};
-        use std::ffi::OsString;
-        use thiserror::Error;
-
-        #[derive(Error, Debug, PartialEq)]
-        pub enum EncodeError {
-            #[error(
-                "Number is too large, greater than 268,435,455, to convert to a variable integer"
-            )]
-            NumberTooLarge,
-        }
-
-        fn two_byte_integer(i: TwoByteIntegerT, b: &mut BytesMut) {
-            b.put_u16(i);
-        }
-
-        fn four_byte_integer(i: FourByteIntegerT, b: &mut BytesMut) {
-            b.put_u32(i);
-        }
-
-        pub fn utf8_encoded_string(s: &str, b: &mut BytesMut) {
-            b.put_u16(s.len() as u16);
-            b.put_slice(s.as_bytes());
-        }
-
-        pub fn variable_byte_integer(
-            i: VariableByteIntegerT,
-            b: &mut BytesMut,
-        ) -> Result<(), EncodeError> {
-            if i > 268_435_455 {
-                return Err(EncodeError::NumberTooLarge);
-            }
-            let mut encoded_byte: u8;
-            let mut to_encode = i;
-            loop {
-                encoded_byte = to_encode.rem_euclid(128u32) as u8;
-                to_encode = to_encode.div_euclid(128u32);
-                if to_encode > 0 {
-                    encoded_byte |= 128
-                }
-                b.put_u8(encoded_byte);
-                if to_encode == 0 {
-                    break;
-                }
-            }
-            Ok(())
-        }
-
-        pub fn binary_data(binary_data: &BytesMut, buffer: &mut BytesMut) {
-            let size: u16 = binary_data.len() as u16;
-            buffer.put_u16(size);
-            buffer.put_slice(binary_data);
-        }
-
-        pub fn utf8_string_pair(key: &str, value: &str, buf: &mut BytesMut) {
-            utf8_encoded_string(key, buf);
-            utf8_encoded_string(value, buf);
-        }
-
-        #[cfg(test)]
-        mod test {
-            use crate::mqttbroker::mqtt_broker::encode;
-            use crate::mqttbroker::mqtt_broker::encode::EncodeError;
-            use bytes::{Buf, BufMut, BytesMut};
-
-            #[test]
-            fn test_encode_128() {
-                let mut b = BytesMut::with_capacity(2);
-                assert_eq!(Ok(()), encode::variable_byte_integer(128, &mut b));
-                assert_eq!(b.to_vec(), vec![0x80, 1]);
-            }
-
-            #[test]
-            fn test_encode_256() {
-                let mut b = BytesMut::with_capacity(2);
-                assert_eq!(Ok(()), encode::variable_byte_integer(256, &mut b));
-                assert_eq!(b.to_vec(), vec![0x80, 2]);
-            }
-
-            #[test]
-            fn test_encode_32767() {
-                let mut b = BytesMut::with_capacity(2);
-                assert_eq!(Ok(()), encode::variable_byte_integer(32767, &mut b));
-                assert_eq!(b.to_vec(), vec![0xff, 0xff, 1]);
-            }
-
-            #[test]
-            fn test_encode_number_too_large() {
-                let mut b = BytesMut::with_capacity(4);
-                let result = encode::variable_byte_integer(300_000_000, &mut b);
-                assert_eq!(EncodeError::NumberTooLarge, result.err().unwrap());
-            }
-
-            #[test]
-            fn test_string() {
-                let mut b = BytesMut::with_capacity(20);
-                let s = "hello world";
-                encode::utf8_encoded_string(s, &mut b);
-                let length = b.get_u16();
-                assert_eq!(s.as_bytes(), b.to_vec());
-                assert_eq!(length as usize, s.len());
-            }
-        }
-    }
-
-    mod decode {
-        use crate::mqttbroker::mqtt_broker::decode::DecodeError::UTF8Errors;
-        use crate::mqttbroker::mqtt_broker::types::{
-            BinaryDataT, FourByteIntegerT, TwoByteIntegerT, Utf8stringPairT, VariableByteIntegerT,
-        };
-        use crate::mqttbroker::mqtt_broker::Property;
-        use crate::mqttbroker::mqtt_broker::*;
-        use bytes::{Buf, BytesMut};
-        use std::collections::HashMap;
-        use thiserror::Error;
-
-        lazy_static! {
-            static ref PROPERTYNAME: HashMap<u8, &'static str> = {
-                let mut h = HashMap::new();
-                h.insert(1, "Payload Format Indicator");
-                h.insert(2, "Message Expiry Interval");
-                h.insert(3, "Content Type");
-                h.insert(8, "Response Topic");
-                h.insert(9, "Correlation Data");
-                h.insert(11, "Subscription Identifier");
-                h.insert(17, "Session Expiry Interval");
-                h.insert(18, "Assigned Client Identifier");
-                h.insert(19, "Server Keep Alive");
-                h.insert(21, "Authentication Method");
-                h.insert(22, "Authentication Data");
-                h.insert(23, "Request Problem Information");
-                h.insert(24, "Will Delay Interval");
-                h.insert(25, "Request Response Information");
-                h.insert(26, "Response Information");
-                h.insert(28, "Server Reference");
-                h.insert(31, "Reason String");
-                h.insert(33, "Receive Maximum");
-                h.insert(34, "Topic Alias Maximum");
-                h.insert(35, "Topic Alias");
-                h.insert(36, "Maximum QoS");
-                h.insert(37, "Retain Available");
-                h.insert(38, "User Property");
-                h.insert(39, "Maximum Packet Size");
-                h.insert(40, "Wildcard Subscription Available");
-                h.insert(41, "Subscription Identifier Available");
-                h.insert(42, "Shared Subscription Available");
-                h
-            };
-        }
-
-        pub enum PayLoad {
-            Required,
-            Optional,
-            None,
-        }
-
-        lazy_static! {
-            static ref PAYLOADREQUIREDSTATUS: HashMap<u8, PayLoad> = {
-                let mut h = HashMap::new();
-                h.insert(packet_types::CONNECT, PayLoad::Required);
-                h.insert(packet_types::CONNACK, PayLoad::None);
-                h.insert(packet_types::PUBLISH, PayLoad::Optional);
-                h.insert(packet_types::PUBACK, PayLoad::None);
-                h.insert(packet_types::PUBREC, PayLoad::None);
-                h.insert(packet_types::PUBREL, PayLoad::None);
-                h.insert(packet_types::PUBCOMP, PayLoad::None);
-                h.insert(packet_types::SUBSCRIBE, PayLoad::Required);
-                h.insert(packet_types::SUBACK, PayLoad::Required);
-                h.insert(packet_types::UNSUBSCRIBE, PayLoad::Required);
-                h.insert(packet_types::UNSUBACK, PayLoad::Required);
-                h.insert(packet_types::PINGREQ, PayLoad::None);
-                h.insert(packet_types::PINGRESP, PayLoad::None);
-                h.insert(packet_types::DISCONNECT, PayLoad::None);
-                h.insert(packet_types::AUTH, PayLoad::None);
-                h
-            };
-        }
-
-        #[derive(Error, Debug, PartialEq)]
-        pub enum DecodeError {
-            #[error("Not enough bytes decoding {0}")]
-            NotEnoughBytes(String),
-            #[error("The variable int does not have the MSB clear on the fourth byte.")]
-            NotValidVarInt,
-            #[error(
-                "Not enough bytes found for decoding {2}. Require {0} bytes, found {1} bytes."
-            )]
-            MoreBytesRequired(u16, u16, String),
-            #[error("Converting bytes to utf-8 string for {0}")]
-            UTF8Errors(String),
-        }
-
-        fn two_byte_integer(
-            name: String,
-            b: &mut BytesMut,
-        ) -> anyhow::Result<TwoByteIntegerT, DecodeError> {
-            if b.len() < 2 {
-                Err(DecodeError::MoreBytesRequired(2, b.len() as u16, name))
-            } else {
-                Ok(b.get_u16())
-            }
-        }
-
-        fn four_byte_integer(
-            name: String,
-            b: &mut BytesMut,
-        ) -> anyhow::Result<FourByteIntegerT, DecodeError> {
-            if b.len() < 4 {
-                Err(DecodeError::MoreBytesRequired(4, b.len() as u16, name))
-            } else {
-                Ok(b.get_u32())
-            }
-        }
-
-        fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, DecodeError> {
-            if b.len() < 2 {
-                Err(DecodeError::NotEnoughBytes(name))
-            } else {
-                let mut i = b.iter();
-                let string_length = *(i.next().unwrap()) as u16 * 256 + *(i.next().unwrap()) as u16;
-                if (b.len() as u16) < (string_length + 2) {
-                    Err(DecodeError::MoreBytesRequired(
-                        string_length,
-                        b.len() as u16 - 2,
-                        name,
-                    ))
-                } else {
-                    b.advance(2);
-                    let s = b.split_to(string_length as usize);
-                    match String::from_utf8(s.chunk().to_vec()) {
-                        Ok(s) => Ok(s),
-                        Err(_) => Err(UTF8Errors(name)),
-                    }
-                }
-            }
-        }
-
-        fn binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryDataT, DecodeError> {
-            if b.len() < 2 {
-                Err(DecodeError::NotEnoughBytes(name))
-            } else {
-                let mut i = b.iter();
-                let string_length: u16 =
-                    (*(i.next().unwrap()) as u16 * 256 + *(i.next().unwrap()) as u16) as u16;
-                if (b.len() as u16) < (string_length + 2) {
-                    Err(DecodeError::MoreBytesRequired(
-                        string_length,
-                        b.len() as u16 - 2,
-                        name,
-                    ))
-                } else {
-                    b.advance(2);
-                    let binary = b.split_to(string_length as usize);
-
-                    Ok(binary.to_vec())
-                }
-            }
-        }
-
-        fn utf8_string_pair(
-            name: String,
-            b: &mut BytesMut,
-        ) -> anyhow::Result<Utf8stringPairT, DecodeError> {
-            let mut key: String = String::from("empty");
-            let mut value: String = String::from("empty");
-            let name_of_key = format!("key of {0}", name);
-            let name_of_value = format!("value of {0}", name);
-            match utf8_string(name_of_key.clone(), b) {
-                Ok(k) => {
-                    key = k;
-                }
-                Err(DecodeError::NotEnoughBytes(name_of_key)) => {
-                    return Err(DecodeError::NotEnoughBytes(name_of_key))
-                }
-                Err(DecodeError::MoreBytesRequired(required, found, name_of_key)) => {
-                    return Err(DecodeError::MoreBytesRequired(required, found, name_of_key))
-                }
-                Err(DecodeError::UTF8Errors(name)) => return Err(DecodeError::UTF8Errors(name)),
-                _ => {}
-            }
-            match utf8_string(name_of_value.clone(), b) {
-                Ok(v) => {
-                    value = v;
-                }
-                Err(DecodeError::NotEnoughBytes(name_of_value)) => {
-                    return Err(DecodeError::NotEnoughBytes(name_of_value))
-                }
-                Err(DecodeError::MoreBytesRequired(required, found, name_of_value)) => {
-                    return Err(DecodeError::MoreBytesRequired(
-                        required,
-                        found,
-                        name_of_value,
-                    ))
-                }
-                Err(DecodeError::UTF8Errors(name)) => return Err(DecodeError::UTF8Errors(name)),
-                _ => {}
-            }
-
-            Ok(Utf8stringPairT { key, value })
-        }
-
-        fn varint(b: &mut bytes::BytesMut) -> anyhow::Result<VariableByteIntegerT, DecodeError> {
-            let mut pos: usize = 0;
-            let mut multiplier = 1u32;
-            let mut value = 0u32;
-            let mut encoded_byte: u8;
-            let mut bytes = b.iter();
-
-            loop {
-                encoded_byte = *bytes.next().unwrap();
-                value += (encoded_byte & 127) as u32 * multiplier;
-                multiplier *= 128;
-
-                if encoded_byte & 128 == 0 {
-                    break;
-                }
-
-                if pos == 3 {
-                    return Err(DecodeError::NotValidVarInt);
-                }
-                pos += 1;
-            }
-            b.advance(pos + 1);
-            Ok(value)
-        }
-
-        fn property(b: &mut bytes::BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> {
-            println!("pre varint length is {}", b.len());
-            let length = varint(b)?;
-            println!("post varint length is {}", b.len());
-            let mut sub_b = b.split_to((length) as usize);
-            println!("post sub_b is {}", sub_b.len());
-
-            let mut p_vec: Vec<Property> = vec![];
-            println!("property length {}", length);
-
-            while !sub_b.is_empty() {
-                let property_identifier = sub_b.get_u8();
-                let p = match property_identifier {
-                    1 | 23 | 25 | 36 | 37 | 40 | 41 | 42 => Property::Byte {
-                        value: sub_b.get_u8(),
-                        property_identifier,
-                    },
-                    2 | 17 | 24 | 39 => {
-                        let four_byte_integer = four_byte_integer(
-                            String::from(
-                                *PROPERTYNAME.get(&property_identifier).to_owned().unwrap(),
-                            ),
-                            &mut sub_b,
-                        )?;
-                        Property::FourByteInteger {
-                            value: four_byte_integer,
-                            property_identifier,
-                        }
-                    }
-                    3 | 8 | 18 | 21 | 26 | 28 | 31 => {
-                        let str = utf8_string(
-                            String::from(
-                                *PROPERTYNAME.get(&property_identifier).to_owned().unwrap(),
-                            ),
-                            &mut sub_b,
-                        )?;
-
-                        Property::UTF8EncodedString {
-                            value: str,
-                            property_identifier,
-                        }
-                    }
-                    9 | 22 => {
-                        let binary_data = binary(
-                            String::from(
-                                *PROPERTYNAME.get(&property_identifier).to_owned().unwrap(),
-                            ),
-                            &mut sub_b,
-                        )?;
-
-                        Property::BinaryData {
-                            value: binary_data,
-                            property_identifier,
-                        }
-                    }
-
-                    19 | 33 | 34 | 35 => {
-                        let two_byte_integer = two_byte_integer(
-                            String::from(
-                                *PROPERTYNAME.get(&property_identifier).to_owned().unwrap(),
-                            ),
-                            &mut sub_b,
-                        )?;
-
-                        Property::TwoByteInteger {
-                            value: two_byte_integer,
-                            property_identifier,
-                        }
-                    }
-
-                    38 => {
-                        let utf8_string_pair = utf8_string_pair(
-                            String::from(
-                                *PROPERTYNAME.get(&property_identifier).to_owned().unwrap(),
-                            ),
-                            &mut sub_b,
-                        )?;
-                        Property::UTF8StringPair {
-                            value: utf8_string_pair,
-                            property_identifier,
-                        }
-                    }
-
-                    11 => {
-                        println!("pre variable_byte_integer sub_p len is {}", sub_b.len());
-                        let variable_byte_integer = varint(&mut sub_b)?;
-                        println!("post variable_byte_integer sub_p len is {}", sub_b.len());
-                        Property::VariableByteInteger {
-                            value: variable_byte_integer,
-                            property_identifier,
-                        }
-                    }
-
-                    _ => {
-                        //FIXME should return a malformed packet error
-                        panic!() // should return a malformed packet Error
-                    }
-                };
-                p_vec.push(p);
-            }
-            Ok(p_vec)
-        }
-
-        #[cfg(test)]
-        mod test {
-            use crate::mqttbroker::mqtt_broker::decode::{utf8_string_pair, varint, DecodeError};
-            use crate::mqttbroker::mqtt_broker::encode::{
-                binary_data, utf8_encoded_string, variable_byte_integer, EncodeError,
-            };
-            use crate::mqttbroker::mqtt_broker::packet_types::{
-                AUTH, CONNACK, CONNECT, DISCONNECT, PINGREQ, PUBACK, PUBCOMP, PUBLISH, PUBREC,
-                PUBREL, SUBACK, SUBSCRIBE, UNSUBACK, UNSUBSCRIBE,
-            };
-            use crate::mqttbroker::mqtt_broker::property_identifiers::{
-                ASSIGNED_CLIENT_IDENTIFIER, CORRELATION_DATA, REASON_STRING, RESPONSE_TOPIC,
-                SESSION_EXPIRY_INTERVAL, SUBSCRIPTION_IDENTIFIER, USER_PROPERTY,
-            };
-            use crate::mqttbroker::mqtt_broker::types::{FourByteIntegerT, Utf8stringPairT};
-            use crate::mqttbroker::mqtt_broker::utility::invalid_property_for_packet_type;
-            use crate::mqttbroker::mqtt_broker::ReasonCode::ProtocolError;
-            use crate::mqttbroker::mqtt_broker::{decode, encode, property_identifiers, Property};
-            use bytes::BufMut;
-            use bytes::BytesMut;
-            use std::collections::HashSet;
-            use std::iter::FromIterator;
-
-            fn payload_format_indicator(val: u8, buf: &mut BytesMut) {
-                buf.put_u8(property_identifiers::PAYLOAD_FORMAT_INDICATOR);
-                buf.put_u8(val);
-            }
-
-            fn message_expiry_interval(value: u32, buf: &mut BytesMut) {
-                buf.put_u8(property_identifiers::MESSAGE_EXPIRY_INTERVAL);
-                buf.put_u32(value);
-            }
-
-            fn content_type(value: &str, buf: &mut BytesMut) {
-                buf.put_u8(property_identifiers::CONTENT_TYPE);
-                utf8_encoded_string(value, buf);
-            }
-
-            fn correlation_data(value: &BytesMut, buf: &mut BytesMut) {
-                buf.put_u8(property_identifiers::CORRELATION_DATA);
-                binary_data(&value, buf);
-            }
-
-            fn subscription_identifier(value: u32, buf: &mut BytesMut) -> Result<(), EncodeError> {
-                buf.put_u8(property_identifiers::SUBSCRIPTION_IDENTIFIER);
-                variable_byte_integer(value, buf)
-            }
-
-            fn session_expiry_interval(value: u32, buf: &mut BytesMut) {
-                buf.put_u8(property_identifiers::SESSION_EXPIRY_INTERVAL);
-                buf.put_u32(value);
-            }
-
-            fn assigned_client_identifier(value: &str, buf: &mut BytesMut) {
-                buf.put_u8(property_identifiers::ASSIGNED_CLIENT_IDENTIFIER);
-                utf8_encoded_string(value, buf);
-            }
-
-            fn user_property(key: &str, value: &str, buf: &mut BytesMut) {
-                buf.put_u8(property_identifiers::USER_PROPERTY);
-                encode::utf8_string_pair(key, value, buf);
-            }
-
-            #[test]
-            fn test_2_byte_integer() {
-                let b = &mut BytesMut::with_capacity(2);
-                b.put_u16(257);
-                assert_eq!(Ok(257), decode::two_byte_integer(String::from("name"), b));
-            }
-
-            #[test]
-            fn test_2_byte_integer_not_enough_bytes() {
-                let b = &mut BytesMut::with_capacity(2);
-                b.put_u8(2);
-                let name = String::from("name");
-                assert_eq!(
-                    Err(DecodeError::MoreBytesRequired(
-                        2,
-                        b.len() as u16,
-                        name.clone()
-                    )),
-                    decode::two_byte_integer(name, b)
-                );
-            }
-
-            #[test]
-            fn test_4_byte_integer() {
-                let b = &mut BytesMut::with_capacity(4);
-                b.put_u32(257);
-                assert_eq!(Ok(257), decode::four_byte_integer(String::from("name"), b));
-            }
-
-            #[test]
-            fn test_4_byte_integer_not_enough_bytes() {
-                let b = &mut BytesMut::with_capacity(2);
-                b.put_u16(257);
-                let name = String::from("name");
-                assert_eq!(
-                    Err(DecodeError::MoreBytesRequired(
-                        4,
-                        b.len() as u16,
-                        name.clone()
-                    )),
-                    decode::four_byte_integer(name, b)
-                );
-            }
-
-            #[test]
-            fn test_utf8_string() {
-                let str = b"hello world";
-                let b = &mut BytesMut::with_capacity(str.len() + 2);
-                b.put_u16(str.len() as u16);
-                b.put_slice(str);
-                let name = String::from("name");
-                assert_eq!("hello world", decode::utf8_string(name, b).unwrap());
-            }
-
-            #[test]
-            fn test_utf8_string_with_extra_byte() {
-                let str = b"hello world";
-                let b = &mut BytesMut::with_capacity(str.len() + 2);
-                b.put_u16(str.len() as u16);
-                b.put_slice(str);
-                b.put_u8(0);
-                b.put_u8(1);
-                b.put_u8(2);
-                let name = String::from("name");
-                //assert_eq!("hello world", decode::utf8_string(name, b).unwrap());
-                let decoded = decode::utf8_string(name, b).unwrap();
-                assert_eq!(3, b.len());
-                let vec = b.to_vec();
-                assert_eq!(vec![0, 1, 2], vec);
-            }
-
-            #[test]
-            fn test_utf8_string_not_enough_bytes() {
-                let b = &mut BytesMut::with_capacity(1);
-                b.put_u8(1);
-                let name = String::from("name");
-                assert_eq!(
-                    Err(decode::DecodeError::NotEnoughBytes(name.clone())),
-                    decode::utf8_string(name, b)
-                );
-            }
-
-            #[test]
-            fn test_utf8_string_invalid_utf8() {
-                let b = &mut BytesMut::with_capacity(3);
-                let str = vec![0, 159];
-                let name = String::from("name");
-                b.put_u16(str.len() as u16);
-                b.put_slice(str.as_slice());
-                assert_eq!(
-                    Err(decode::DecodeError::UTF8Errors(name.clone())),
-                    decode::utf8_string(name, b)
-                )
-            }
-
-            #[test]
-            fn test_binary() {
-                let b = &mut BytesMut::with_capacity(8);
-                let name = String::from("name");
-                let binary = vec![0, 1, 2, 3, 4, 5];
-                b.put_u16(binary.len() as u16);
-                b.put_slice(binary.as_slice());
-                assert_eq!(binary, decode::binary(name, b).unwrap());
-            }
-
-            #[test]
-            fn test_binary_with_extra_byte() {
-                let b = &mut BytesMut::with_capacity(8);
-                let name = String::from("name");
-                let binary = vec![0, 1, 2, 3, 4, 5];
-                b.put_u16(binary.len() as u16);
-                b.put_slice(binary.as_slice());
-                b.put_u8(0); // dummy byte value
-                assert_eq!(binary, decode::binary(name, b).unwrap());
-                assert_eq!(b.len(), 1);
-            }
-
-            #[test]
-            fn test_binary_not_enough_bytes() {
-                let b = &mut BytesMut::with_capacity(1);
-                b.put_u8(1);
-                let name = String::from("name");
-                assert_eq!(
-                    Err(DecodeError::NotEnoughBytes(name.clone())),
-                    decode::binary(name, b)
-                );
-            }
-            #[test]
-            fn test_utf8_string_pair() {
-                let key = b"key";
-                let b_key = &mut BytesMut::with_capacity(key.len() + 2);
-                b_key.put_u16(key.len() as u16);
-                b_key.put(key.to_vec().as_slice());
-
-                let value = b"value";
-                let b_value = &mut BytesMut::with_capacity(value.len() + 2);
-                b_value.put_u16(value.len() as u16);
-                b_value.put(value.to_vec().as_slice());
-
-                let b = &mut BytesMut::with_capacity(100);
-                b.put(b_key);
-                b.put(b_value);
-
-                let string_pair = Utf8stringPairT {
-                    key: String::from("key"),
-                    value: String::from("value"),
-                };
-
-                assert_eq!(
-                    string_pair,
-                    utf8_string_pair(String::from("property name"), b).unwrap()
-                );
-            }
-
-            #[test]
-            fn varint_1_test() {
-                let mut b = BytesMut::with_capacity(1);
-                b.put_u8(1);
-
-                if let Ok(i) = varint(&mut b) {
-                    assert_eq!(i, 1);
-                }
-            }
-
-            #[test]
-            fn varint_127_test() {
-                let mut b = BytesMut::with_capacity(1);
-                b.put_u8(127);
-
-                if let Ok(i) = varint(&mut b) {
-                    assert_eq!(i, 127);
-                }
-            }
-
-            #[test]
-            fn varint_127_test_with_extra_byte() {
-                let mut b = BytesMut::with_capacity(1);
-                b.put_u8(127);
-                b.put_u8(0);
-
-                if let Ok(i) = varint(&mut b) {
-                    assert_eq!(i, 127);
-                    assert_eq!(1, b.len());
-                }
-            }
-            #[test]
-            fn varint_128_test() {
-                let mut b = BytesMut::with_capacity(2);
-                b.put_u8(0x80);
-                b.put_u8(0x01);
-
-                if let Ok(i) = varint(&mut b) {
-                    assert_eq!(i, 128);
-                } else {
-                    assert!(false);
-                }
-            }
-
-            #[test]
-            fn varint_128_test_with_extra_byte() {
-                let mut b = BytesMut::with_capacity(2);
-                b.put_u8(0x80);
-                b.put_u8(0x01);
-                b.put_u8(0);
-                if let Ok(i) = varint(&mut b) {
-                    assert_eq!(i, 128);
-                    assert_eq!(1, b.len());
-                } else {
-                    assert!(false);
-                }
-            }
-
-            #[test]
-            fn varint_32767_test() {
-                let mut b = BytesMut::with_capacity(3);
-                b.put_u8(0xFF);
-                b.put_u8(0xFF);
-                b.put_u8(0x01);
-                b.put_u8(0);
-                b.put_u8(0);
-                if let Ok(i) = varint(&mut b) {
-                    assert_eq!(i, 32767);
-                } else {
-                    assert!(false);
-                }
-            }
-
-            #[test]
-            fn test_decode_varint_32767_with_1_dummy_byte_appended() {
-                let mut b = BytesMut::with_capacity(1);
-                b.put_u8(0xFF);
-                b.put_u8(0xFF);
-                b.put_u8(0x01);
-                b.put_u8(0);
-                if let Ok(_) = varint(&mut b) {
-                    assert_eq!(b.len(), 1);
-                } else {
-                    assert!(false);
-                }
-            }
-
-            #[test]
-            fn test_decode_varint_32767_with_3_dummy_byte_appended() {
-                let mut b = BytesMut::with_capacity(1);
-                b.put_u8(0xFF);
-                b.put_u8(0xFF);
-                b.put_u8(0x01);
-                b.put_u8(0);
-                b.put_u8(0);
-                b.put_u8(0);
-                if let Ok(_) = varint(&mut b) {
-                    assert_eq!(b.len(), 3);
-                } else {
-                    assert!(false);
-                }
-            }
-
-            #[test]
-            fn varint_32768_test() {
-                let mut b = BytesMut::with_capacity(3);
-                b.put_u8(0x80);
-                b.put_u8(0x80);
-                b.put_u8(0x02);
-                if let Ok(i) = varint(&mut b) {
-                    assert_eq!(i, 32768);
-                } else {
-                    assert!(false);
-                }
-            }
-
-            #[test]
-            fn varint_268_435_455_test() {
-                let mut b = BytesMut::with_capacity(10);
-                b.put_u8(0xFF);
-                b.put_u8(0xFF);
-                b.put_u8(0xFF);
-                b.put_u8(0x7f);
-
-                if let Ok(i) = varint(&mut b) {
-                    assert_eq!(i, 268_435_455);
-                } else {
-                    assert!(false);
-                }
-            }
-
-            #[test]
-            fn test_property_payload_format_indicator_with_will_message_is_unspecified_bytes_is_correct_size(
-            ) {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-
-                b_prop.put_u8(property_identifiers::PAYLOAD_FORMAT_INDICATOR); // property identifier
-                b_prop.put_u8(0x0); //
-                if let Ok(..) = encode::variable_byte_integer(b_prop.len() as u32, &mut b) {
-                    b.put(b_prop);
-
-                    assert_eq!(2, *b.get(0).unwrap());
-                }
-            }
-
-            #[test]
-            fn test_property_payload_with_zero_property_length() {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop.to_vec().as_slice()); //insert payload format indicator property
-                let blank_property: Vec<Property> = vec![];
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(blank_property, p)
-                }
-            }
-
-            #[test]
-            fn test_property_payload_with_7_properties_of_different_types() {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-            }
-
-            #[test]
-            fn test_property_type_byte_using_payload_format_indicator() {
-                let mut b_prop = BytesMut::with_capacity(0);
-                let mut b = BytesMut::with_capacity(100);
-
-                b_prop.put_u8(property_identifiers::PAYLOAD_FORMAT_INDICATOR); // property identifier, Payload format indicator
-                b_prop.put_u8(0x02); // value
-
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop); //insert payload format indicator property
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![Property::Byte {
-                            value: 2,
-                            property_identifier: property_identifiers::PAYLOAD_FORMAT_INDICATOR
-                        }],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_property_type_using_double_payload_format_indicator() {
-                let mut b_prop = BytesMut::with_capacity(0);
-                let mut b = BytesMut::with_capacity(100);
-
-                b_prop.put_u8(property_identifiers::PAYLOAD_FORMAT_INDICATOR); // property identifier, Payload format indicator
-                b_prop.put_u8(0x02); // value
-
-                b_prop.put_u8(property_identifiers::PAYLOAD_FORMAT_INDICATOR); // property identifier, Payload format indicator
-                b_prop.put_u8(0x03); // value
-
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop); //insert payload format indicator property
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![
-                            Property::Byte {
-                                value: 2,
-                                property_identifier: property_identifiers::PAYLOAD_FORMAT_INDICATOR
-                            },
-                            Property::Byte {
-                                value: 3,
-                                property_identifier: property_identifiers::PAYLOAD_FORMAT_INDICATOR
-                            },
-                        ],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_property_type_using_all_data_types() {
-                let mut b_prop = BytesMut::with_capacity(0);
-                let mut b = BytesMut::with_capacity(100);
-
-                payload_format_indicator(99, &mut b_prop);
-                message_expiry_interval(123456, &mut b_prop);
-                content_type("hello", &mut b_prop);
-                let mut binary_data = BytesMut::with_capacity(0);
-                binary_data.put(vec![1u8, 2, 3, 4, 5, 6].as_slice());
-                correlation_data(&binary_data, &mut b_prop);
-                subscription_identifier(12345, &mut b_prop);
-
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop);
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![
-                            Property::Byte {
-                                value: 99,
-                                property_identifier: property_identifiers::PAYLOAD_FORMAT_INDICATOR,
-                            },
-                            Property::FourByteInteger {
-                                value: 123456,
-                                property_identifier: property_identifiers::MESSAGE_EXPIRY_INTERVAL,
-                            },
-                            Property::UTF8EncodedString {
-                                value: "hello".to_string(),
-                                property_identifier: property_identifiers::CONTENT_TYPE,
-                            },
-                            Property::BinaryData {
-                                value: vec![1u8, 2, 3, 4, 5, 6],
-                                property_identifier: property_identifiers::CORRELATION_DATA
-                            },
-                            Property::VariableByteInteger {
-                                value: 12345,
-                                property_identifier: property_identifiers::SUBSCRIPTION_IDENTIFIER
-                            }
-                        ],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_for_invalid_properties_for_packet_type_connect_without_will_flag_not_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    ASSIGNED_CLIENT_IDENTIFIER,
-                    SESSION_EXPIRY_INTERVAL,
-                    CORRELATION_DATA,
-                    RESPONSE_TOPIC,
-                ]);
-                let invalid_property_set: HashSet<u8> = HashSet::from_iter(vec![
-                    ASSIGNED_CLIENT_IDENTIFIER,
-                    CORRELATION_DATA,
-                    RESPONSE_TOPIC,
-                ]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, CONNECT, false)
-                );
-            }
-
-            #[test]
-            fn test_for_invalid_properties_for_packet_type_connect_with_will_flag_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    ASSIGNED_CLIENT_IDENTIFIER,
-                    SESSION_EXPIRY_INTERVAL,
-                    CORRELATION_DATA,
-                    RESPONSE_TOPIC,
-                ]);
-                let invalid_property_set: HashSet<u8> =
-                    HashSet::from_iter(vec![ASSIGNED_CLIENT_IDENTIFIER]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, CONNECT, true)
-                );
-            }
-
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_connack_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    SUBSCRIPTION_IDENTIFIER,
-                    SESSION_EXPIRY_INTERVAL,
-                    CORRELATION_DATA,
-                    RESPONSE_TOPIC,
-                ]);
-                let invalid_property_set: HashSet<u8> = HashSet::from_iter(vec![
-                    SUBSCRIPTION_IDENTIFIER,
-                    CORRELATION_DATA,
-                    RESPONSE_TOPIC,
-                ]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, CONNACK, false)
-                );
-            }
-
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_publish_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    SESSION_EXPIRY_INTERVAL,
-                    CORRELATION_DATA,
-                    RESPONSE_TOPIC,
-                ]);
-                let invalid_property_set: HashSet<u8> =
-                    HashSet::from_iter(vec![SESSION_EXPIRY_INTERVAL]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, PUBLISH, false)
-                );
-            }
-
-            // puback
-
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_puback_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA, REASON_STRING]);
-                let invalid_property_set: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, PUBACK, false)
-                );
-            }
-
-            // pubrec
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_pubrec_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA, REASON_STRING]);
-                let invalid_property_set: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, PUBREC, false)
-                );
-            }
-
-            // pubrel
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_pubrel_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA, REASON_STRING]);
-                let invalid_property_set: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, PUBREL, false)
-                );
-            }
-
-            // pubcomp
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_pubcomp_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA, REASON_STRING]);
-                let invalid_property_set: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, PUBCOMP, false)
-                );
-            }
-
-            // subscribe
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_subscribe_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                ]);
-                let invalid_property_set: HashSet<u8> =
-                    HashSet::from_iter(vec![RESPONSE_TOPIC, CORRELATION_DATA, REASON_STRING]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, SUBSCRIBE, false)
-                );
-            }
-
-            // suback
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_suback_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                ]);
-                let invalid_property_set: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    SUBSCRIPTION_IDENTIFIER,
-                ]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, SUBACK, false)
-                );
-            }
-
-            // unsubscribe
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_unsubscribe_with_will_flag_not_set()
-            {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                ]);
-                let invalid_property_set: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                ]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, UNSUBSCRIBE, false)
-                );
-            }
-            // unsuback
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_unsuback_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                    USER_PROPERTY,
-                ]);
-                let invalid_property_set: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    SUBSCRIPTION_IDENTIFIER,
-                ]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, UNSUBACK, false)
-                );
-            }
-            // pingreq
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_pingreq_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                    USER_PROPERTY,
-                ]);
-                let invalid_property_set: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                    USER_PROPERTY,
-                ]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, PINGREQ, false)
-                );
-            }
-
-            // disconnect
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_disconnect_with_will_flag_not_set()
-            {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                    USER_PROPERTY,
-                ]);
-                let invalid_property_set: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    SUBSCRIPTION_IDENTIFIER,
-                ]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, DISCONNECT, false)
-                );
-            }
-            // auth
-            #[test]
-            fn should_return_invalid_properties_for_packet_type_auth_with_will_flag_not_set() {
-                let assigned_property: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    REASON_STRING,
-                    SUBSCRIPTION_IDENTIFIER,
-                    USER_PROPERTY,
-                ]);
-                let invalid_property_set: HashSet<u8> = HashSet::from_iter(vec![
-                    RESPONSE_TOPIC,
-                    CORRELATION_DATA,
-                    SUBSCRIPTION_IDENTIFIER,
-                ]);
-
-                assert_eq!(
-                    invalid_property_set,
-                    invalid_property_for_packet_type(assigned_property, AUTH, false)
-                );
-            }
-            #[test]
-            fn test_property_type_four_byte_integer_using_message_expiry_interval_type() {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-                b_prop.put_u8(0x02); // property identifier, message expiry interval
-                b_prop.put_u32(0x01); // message expiry interval
-
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop);
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![Property::FourByteInteger {
-                            value: 1,
-                            property_identifier: 0x02,
-                        }],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_property_type_utf_8_encode_string_using_content_type() {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-                let b_string = String::from("hello world");
-                b_prop.put_u8(property_identifiers::CONTENT_TYPE); // property identifier, UTF-8 Encoded String
-
-                b_prop.put_u16(b_string.len() as u16);
-                b_prop.put(b_string.as_bytes());
-
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop);
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![Property::UTF8EncodedString {
-                            value: String::from("hello world"),
-                            property_identifier: property_identifiers::CONTENT_TYPE,
-                        }],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_property_type_binary_data_using_correlation_data() {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-                let b_binarydata = vec![1u8, 2u8, 3u8, 4u8, 5u8];
-
-                b_prop.put_u8(property_identifiers::CORRELATION_DATA);
-                b_prop.put_u16(b_binarydata.len() as u16);
-                b_prop.put(b_binarydata.as_slice());
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop);
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![Property::BinaryData {
-                            value: vec![1u8, 2, 3, 4, 5],
-                            property_identifier: property_identifiers::CORRELATION_DATA,
-                        }],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_property_type_variable_byte_integer() {
-                let mut b_prop = BytesMut::with_capacity(20);
-                let mut b = BytesMut::with_capacity(100);
-                let b_integer: u32 = 268_435_455;
-
-                b_prop.put_u8(property_identifiers::SUBSCRIPTION_IDENTIFIER);
-                variable_byte_integer(b_integer, &mut b_prop);
-
-                variable_byte_integer(b_prop.len() as u32, &mut b); // size of property
-
-                b.put(b_prop);
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![Property::VariableByteInteger {
-                            value: b_integer,
-                            property_identifier: property_identifiers::SUBSCRIPTION_IDENTIFIER,
-                        }],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_property_type_four_byte_integer() {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-                let b_integer: FourByteIntegerT = 269_435_455;
-
-                b_prop.put_u8(property_identifiers::SESSION_EXPIRY_INTERVAL);
-                b_prop.put_u32(b_integer);
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop);
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![Property::FourByteInteger {
-                            value: b_integer,
-                            property_identifier: property_identifiers::SESSION_EXPIRY_INTERVAL
-                        }],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_property_type_two_integer_using_server_keep_alive() {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-
-                b_prop.put_u8(property_identifiers::SERVER_KEEP_ALIVE);
-                b_prop.put_u16(0x1001);
-
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop);
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![Property::TwoByteInteger {
-                            value: 0x1001,
-                            property_identifier: property_identifiers::SERVER_KEEP_ALIVE
-                        }],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_property_type_utf8_string_pair_using_user_property() {
-                let mut b_prop = BytesMut::with_capacity(2);
-                let mut b = BytesMut::with_capacity(100);
-
-                let key = b"Hello";
-                let value = b"World";
-
-                b_prop.put_u8(property_identifiers::USER_PROPERTY);
-                encode::utf8_string_pair("Hello", "World", &mut b_prop);
-                variable_byte_integer(b_prop.len() as u32, &mut b);
-                b.put(b_prop);
-
-                if let Ok(p) = decode::property(&mut b) {
-                    assert_eq!(
-                        vec![Property::UTF8StringPair {
-                            value: Utf8stringPairT {
-                                key: String::from_utf8(key.to_vec()).unwrap(),
-                                value: String::from_utf8(value.to_vec()).unwrap(),
-                            },
-                            property_identifier: property_identifiers::USER_PROPERTY
-                        }],
-                        p
-                    )
-                }
-            }
-
-            #[test]
-            fn test_decoding_all_property_types() {
-                // insert Payload format indicator, byte
-                // insert Message expiry interval
-            }
-        }
-    }
-
     pub mod utility {
-        use crate::mqttbroker::mqtt_broker::packet_types;
-        use crate::mqttbroker::mqtt_broker::property_identifiers::{
-            ASSIGNED_CLIENT_IDENTIFIER, AUTHENTICATION_DATA, AUTHENTICATION_METHOD, CONTENT_TYPE,
-            CORRELATION_DATA, MAXIMUM_PACKET_SIZE, MAXIMUM_QOS, MESSAGE_EXPIRY_INTERVAL,
-            PAYLOAD_FORMAT_INDICATOR, REASON_STRING, RECEIVE_MAXIMUM, REQUEST_PROBLEM_INFORMATION,
-            REQUEST_RESPONSE_INFORMATION, RESPONSE_INFORMATION, RESPONSE_TOPIC, RETAIN_AVAILABLE,
-            SERVER_KEEP_ALIVE, SERVER_REFERENCE, SESSION_EXPIRY_INTERVAL,
-            SHARED_SUBSCRIPTION_AVAILABLE, SUBSCRIPTION_IDENTIFIER,
-            SUBSCRIPTION_IDENTIFIER_AVAILABLE, TOPIC_ALIAS, TOPIC_ALIAS_MAXIMUM, USER_PROPERTY,
-            WILDCARD_SUBSCRIPTION_AVAILABLE, WILL_DELAY_INTERVAL,
+        use crate::mqttbroker::mqtt_broker::PropertyIdentifiers::{
+            AssignedClientIdentifier, AuthenticationData, AuthenticationMethod, ContentType,
+            CorrelationData, MaximumPacketSize, MaximumQos, MessageExpiryInterval,
+            PayloadFormatIndicator, ReasonString, ReceiveMaximum, RequestProblemInformation,
+            RequestResponseInformation, ResponseInformation, ResponseTopic, RetainAvailable,
+            ServerKeepAlive, ServerReference, SessionExpiryInterval, SharedSubscriptionAvailable,
+            SubscriptionIdentifier, SubscriptionIdentifierAvailable, TopicAlias, TopicAliasMaximum,
+            UserProperty, WildcardSubscriptionAvailable, WillDelayInterval,
         };
-        use std::collections::HashSet;
-        use std::iter::FromIterator;
+        use crate::mqttbroker::mqtt_broker::{packet_types, Property, PropertyIdentifiers};
+        use std::collections::{HashMap, HashSet};
+        use std::convert::TryFrom;
 
         fn concat(mut set: HashSet<u8>, subset: &HashSet<u8>) -> HashSet<u8> {
             for x in subset {
@@ -1536,17 +272,15 @@ mod mqtt_broker {
         /// Will return a list of invalid properties
         ///
         pub fn invalid_property_for_packet_type(
-            property: HashSet<u8>,
-            packet_type: u8,
-            will_flag_set: bool,
-        ) -> HashSet<u8> {
-            let mut valid_properties: HashSet<u8> = HashSet::from_iter(vec![]);
+            properties: &Vec<Property>,
+            validated_properties: Vec<PropertyIdentifiers>,
+            pack_type: packet_types,
+        ) -> Vec<Property> {
+            let mut valid_property_identifiers: Vec<PropertyIdentifiers> = vec![];
 
-            if will_flag_set {
-                valid_properties.extend(&valid_properties_for_will());
-            }
+            valid_property_identifiers.extend(validated_properties);
 
-            let property_extension = match packet_type {
+            let property_extension = match pack_type {
                 packet_types::CONNECT => valid_properties_for_connect_packet(),
 
                 packet_types::CONNACK => valid_properties_for_connack_packet(),
@@ -1561,130 +295,146 @@ mod mqtt_broker {
                 packet_types::UNSUBACK => valid_properties_for_unsuback_packet(),
                 packet_types::DISCONNECT => valid_properties_for_disconnect_packet(),
                 packet_types::AUTH => valid_properties_for_auth_packet(),
-                _ => HashSet::from_iter::<Vec<u8>>(vec![]),
+                _ => vec![],
             };
 
-            valid_properties.extend(property_extension);
+            valid_property_identifiers.extend(property_extension);
 
-            let mut diff = HashSet::<u8>::new();
-            diff.extend(property.difference(&valid_properties));
+            let mut invalid: Vec<Property> = Vec::with_capacity(13);
 
-            diff
+            println!("valid properties are {:?}", valid_property_identifiers);
+
+            diff(properties, &valid_property_identifiers, &mut invalid);
+
+            invalid
         }
 
-        fn valid_properties_for_will() -> HashSet<u8> {
-            let p = HashSet::from_iter(vec![
-                PAYLOAD_FORMAT_INDICATOR,
-                MESSAGE_EXPIRY_INTERVAL,
-                CONTENT_TYPE,
-                RESPONSE_TOPIC,
-                CORRELATION_DATA,
-                WILL_DELAY_INTERVAL,
-                USER_PROPERTY,
-            ]);
-            p
+        fn diff(
+            left: &Vec<Property>,
+            right: &Vec<PropertyIdentifiers>,
+            differences: &mut Vec<Property>,
+        ) {
+            for property in left {
+                if !right
+                    .contains(&PropertyIdentifiers::try_from(property.property_identifier).unwrap())
+                {
+                    differences.push(property.clone());
+                }
+            }
         }
 
-        fn valid_properties_for_connect_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![
-                SESSION_EXPIRY_INTERVAL,
-                AUTHENTICATION_METHOD,
-                AUTHENTICATION_DATA,
-                REQUEST_PROBLEM_INFORMATION,
-                REQUEST_RESPONSE_INFORMATION,
-                RECEIVE_MAXIMUM,
-                TOPIC_ALIAS_MAXIMUM,
-                USER_PROPERTY,
-                MAXIMUM_PACKET_SIZE,
-            ])
+        pub fn valid_properties_for_will() -> Vec<PropertyIdentifiers> {
+            vec![
+                WillDelayInterval,
+                PayloadFormatIndicator,
+                MessageExpiryInterval,
+                ContentType,
+                ResponseTopic,
+                CorrelationData,
+                UserProperty,
+            ]
         }
 
-        fn valid_properties_for_connack_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![
-                SESSION_EXPIRY_INTERVAL,
-                ASSIGNED_CLIENT_IDENTIFIER,
-                SERVER_KEEP_ALIVE,
-                AUTHENTICATION_METHOD,
-                AUTHENTICATION_DATA,
-                RESPONSE_INFORMATION,
-                SERVER_REFERENCE,
-                REASON_STRING,
-                RECEIVE_MAXIMUM,
-                TOPIC_ALIAS_MAXIMUM,
-                MAXIMUM_QOS,
-                RETAIN_AVAILABLE,
-                USER_PROPERTY,
-                MAXIMUM_PACKET_SIZE,
-                WILDCARD_SUBSCRIPTION_AVAILABLE,
-                SUBSCRIPTION_IDENTIFIER_AVAILABLE,
-                SHARED_SUBSCRIPTION_AVAILABLE,
-            ])
+        fn valid_properties_for_connect_packet() -> Vec<PropertyIdentifiers> {
+            vec![
+                SessionExpiryInterval,
+                AuthenticationMethod,
+                AuthenticationData,
+                RequestProblemInformation,
+                RequestResponseInformation,
+                ReceiveMaximum,
+                TopicAliasMaximum,
+                UserProperty,
+                MaximumPacketSize,
+            ]
         }
 
-        fn valid_properties_for_publish_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![
-                PAYLOAD_FORMAT_INDICATOR,
-                MESSAGE_EXPIRY_INTERVAL,
-                CONTENT_TYPE,
-                RESPONSE_TOPIC,
-                CORRELATION_DATA,
-                SUBSCRIPTION_IDENTIFIER,
-                TOPIC_ALIAS,
-                USER_PROPERTY,
-            ])
+        fn valid_properties_for_connack_packet() -> Vec<PropertyIdentifiers> {
+            vec![
+                SessionExpiryInterval,
+                AssignedClientIdentifier,
+                ServerKeepAlive,
+                AuthenticationMethod,
+                AuthenticationData,
+                ResponseInformation,
+                ServerReference,
+                ReasonString,
+                ReceiveMaximum,
+                TopicAliasMaximum,
+                MaximumQos,
+                RetainAvailable,
+                UserProperty,
+                MaximumPacketSize,
+                WildcardSubscriptionAvailable,
+                SubscriptionIdentifierAvailable,
+                SharedSubscriptionAvailable,
+            ]
         }
 
-        fn valid_properties_for_puback_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![REASON_STRING, USER_PROPERTY])
+        fn valid_properties_for_publish_packet() -> Vec<PropertyIdentifiers> {
+            vec![
+                PayloadFormatIndicator,
+                MessageExpiryInterval,
+                ContentType,
+                ResponseTopic,
+                CorrelationData,
+                SubscriptionIdentifier,
+                TopicAlias,
+                UserProperty,
+            ]
         }
 
-        fn valid_properties_for_pubrec_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![REASON_STRING, USER_PROPERTY])
+        fn valid_properties_for_puback_packet() -> Vec<PropertyIdentifiers> {
+            vec![ReasonString, UserProperty]
         }
 
-        fn valid_properties_for_pubrel_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![REASON_STRING, USER_PROPERTY])
+        fn valid_properties_for_pubrec_packet() -> Vec<PropertyIdentifiers> {
+            vec![ReasonString, UserProperty]
         }
 
-        fn valid_properties_for_pubcomp_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![REASON_STRING, USER_PROPERTY])
+        fn valid_properties_for_pubrel_packet() -> Vec<PropertyIdentifiers> {
+            vec![ReasonString, UserProperty]
         }
 
-        fn valid_properties_for_subscribe_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![SUBSCRIPTION_IDENTIFIER, USER_PROPERTY])
+        fn valid_properties_for_pubcomp_packet() -> Vec<PropertyIdentifiers> {
+            vec![ReasonString, UserProperty]
         }
 
-        fn valid_properties_for_suback_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![REASON_STRING, USER_PROPERTY])
+        fn valid_properties_for_subscribe_packet() -> Vec<PropertyIdentifiers> {
+            vec![SubscriptionIdentifier, UserProperty]
         }
 
-        fn valid_properties_for_unsubscribe_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![USER_PROPERTY])
+        fn valid_properties_for_suback_packet() -> Vec<PropertyIdentifiers> {
+            vec![ReasonString, UserProperty]
         }
 
-        fn valid_properties_for_unsuback_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![REASON_STRING, USER_PROPERTY])
+        fn valid_properties_for_unsubscribe_packet() -> Vec<PropertyIdentifiers> {
+            vec![UserProperty]
         }
 
-        fn valid_properties_for_disconnect_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![
-                SESSION_EXPIRY_INTERVAL,
-                SERVER_REFERENCE,
-                REASON_STRING,
-                USER_PROPERTY,
-            ])
+        fn valid_properties_for_unsuback_packet() -> Vec<PropertyIdentifiers> {
+            vec![ReasonString, UserProperty]
         }
 
-        fn valid_properties_for_auth_packet() -> HashSet<u8> {
-            HashSet::from_iter(vec![
-                AUTHENTICATION_METHOD,
-                AUTHENTICATION_DATA,
-                REASON_STRING,
-                USER_PROPERTY,
-            ])
+        fn valid_properties_for_disconnect_packet() -> Vec<PropertyIdentifiers> {
+            vec![
+                SessionExpiryInterval,
+                ServerReference,
+                ReasonString,
+                UserProperty,
+            ]
         }
 
-        fn packet_identifier_present(mqtt_control_packet: u8, qos: u8) -> bool {
+        fn valid_properties_for_auth_packet() -> Vec<PropertyIdentifiers> {
+            vec![
+                AuthenticationMethod,
+                AuthenticationData,
+                ReasonString,
+                UserProperty,
+            ]
+        }
+
+        fn packet_identifier_present(mqtt_control_packet: packet_types, qos: u8) -> bool {
             match mqtt_control_packet {
                 packet_types::CONNECT
                 | packet_types::CONNACK
@@ -1701,7 +451,89 @@ mod mqtt_broker {
                 | packet_types::UNSUBSCRIBE
                 | packet_types::UNSUBACK => true,
                 packet_types::PUBLISH => (qos > 0),
-                _ => false,
+            }
+        }
+        ///
+        /// checks whether the properties are unique, or not. Not sure if this is required as
+        pub fn check_for_non_unique_properties(props: &Vec<Property>) -> Vec<Property> {
+            let mut prop_count: HashMap<Property, u8> = HashMap::new();
+            for p in props {
+                prop_count.insert(p.clone(), 1);
+                let count = prop_count.entry(p.clone()).or_insert(0);
+                *count += 1;
+            }
+
+            prop_count
+                .retain(|k, v| k.property_identifier != PropertyIdentifiers::UserProperty as u8);
+
+            prop_count.retain(|_, v| *v > 1);
+            prop_count.into_keys().collect()
+        }
+
+        ///
+        /// Returns whether the property has been successfully added. If not then it already exists
+        /// and the property is a duplicate
+        ///  # Arguments
+        ///
+        /// * `props` - List of properties
+        /// * `to_add` - Property to add
+        ///
+        pub fn add_property(props: &mut Vec<Property>, mut to_add: Property) -> bool {
+            for p in props.iter() {
+                if p.property_identifier == to_add.property_identifier
+                    && p.property_identifier != PropertyIdentifiers::UserProperty as u8
+                {
+                    return false;
+                }
+            }
+
+            // add to list if not property not already exists or is userproperty property
+            props.push(to_add);
+
+            true
+        }
+        #[cfg(test)]
+        mod tests {
+            use crate::mqttbroker::mqtt_broker::utility::add_property;
+            use crate::mqttbroker::mqtt_broker::{Property, PropertyElement, PropertyIdentifiers};
+
+            #[test]
+            fn test_add_property_with_duplicate_property() {
+                let mut properties = vec![Property {
+                    element_value: PropertyElement::Byte { value: 0x01 },
+                    property_identifier: PropertyIdentifiers::SubscriptionIdentifier as u8,
+                }];
+                let prop_to_add = Property {
+                    element_value: PropertyElement::Byte { value: 0x01 },
+                    property_identifier: PropertyIdentifiers::SubscriptionIdentifier as u8,
+                };
+                assert!(!add_property(&mut properties, prop_to_add))
+            }
+
+            #[test]
+            fn test_add_property_with_unique_property() {
+                let mut properties = vec![Property {
+                    element_value: PropertyElement::Byte { value: 0x01 },
+                    property_identifier: PropertyIdentifiers::SubscriptionIdentifier as u8,
+                }];
+                let prop_to_add = Property {
+                    element_value: PropertyElement::Byte { value: 0x01 },
+                    property_identifier: PropertyIdentifiers::UserProperty as u8,
+                };
+                assert!(add_property(&mut properties, prop_to_add))
+            }
+
+            #[test]
+            fn test_add_property_with_duplicate_userproperty() {
+                let mut properties = vec![Property {
+                    element_value: PropertyElement::Byte { value: 0x01 },
+                    property_identifier: PropertyIdentifiers::UserProperty as u8,
+                }];
+                let prop_to_add = Property {
+                    element_value: PropertyElement::Byte { value: 0x01 },
+                    property_identifier: PropertyIdentifiers::UserProperty as u8,
+                };
+                assert!(add_property(&mut properties, prop_to_add))
             }
         }
     }
@@ -1755,27 +587,391 @@ mod mqtt_broker {
     }
 
     mod packets {
+        use crate::decode::{binary, property, utf8_string, varint};
+        use crate::encode::{utf8_encoded_string, variable_byte_integer};
+        use crate::mqttbroker::mqtt_broker::packets::error::PropertyError;
+        use crate::mqttbroker::mqtt_broker::packets::ControlPacket::Connect;
+        use crate::mqttbroker::mqtt_broker::utility::{
+            check_for_non_unique_properties, invalid_property_for_packet_type,
+            valid_properties_for_will,
+        };
+        use crate::mqttbroker::mqtt_broker::{packet_types, PropertyIdentifiers};
         use crate::mqttbroker::mqtt_broker::{Property, ReasonCode};
+        use bytes::{Buf, BufMut, BytesMut};
         use std::collections::HashSet;
+        use std::io;
 
-        pub struct Connect {
+        mod error {
+            use crate::mqttbroker::mqtt_broker::{Property, PropertyIdentifiers};
+            use thiserror::Error;
+
+            #[derive(Error, Debug)]
+            pub enum PropertyError {
+                #[error("property {0:?} has already been inserted, you are trying to insert a duplicate copy into {1}")]
+                PropertyAlreadyInserted(Vec<Property>, String),
+                // #[error("property {0} is not valid for Will T opic of CONNECT Payload")]
+                // InvalidConnectPayloadWillProperty(String),
+                // #[error("property {0} is not valid for Properties of CONNECT Variable Header")]
+                // InvalidConnectVariableHeaderProperty(String),
+                #[error("property {0:?} is not valid for packet type {1}")]
+                InvalidProperty(Vec<Property>, String),
+            }
+        }
+
+        pub enum ControlPacket {
+            Connect {
+                packet_type: Option<u8>,
+                protocol_name: Option<String>,
+                protocol_version: Option<u8>,
+                connect_flags: Option<u8>,
+                keep_alive: Option<u16>,
+                variable_header_properties: Option<Vec<Property>>,
+                client_identifier: Option<String>,
+                will_properties: Option<Vec<Property>>,
+                will_topic: Option<String>,
+                will_payload: Option<Vec<u8>>,
+                username: Option<String>,
+                password: Option<String>,
+            },
+        }
+
+        #[derive(Default)]
+        struct ConnectPacket {
             // fixed header
             packet_type: u8,
-
+            packet_type_flags: u8,
             // variable header
             protocol_name: String,
             protocol_version: u8,
-            connect_flags: u8,
             keep_alive: u16,
-            property: HashSet<Property>,
-
-            //payload
+            variable_header_properties: Vec<Property>,
+            connect_flags_will_retain: bool,
+            connect_flags_will_qos: u8,
+            connect_flags_clean_start: bool,
+            connect_flags_will_flag: bool,
+            connect_flags: u8,
+            // payload
             client_id: String,
-            will_property: Option<Vec<Property>>,
+            will_properties: Vec<Property>,
             will_topic: Option<String>,
-            will_payload: Vec<u8>,
+            will_payload: Option<Vec<u8>>,
             username: Option<String>,
             password: Option<String>,
+        }
+
+        struct ConnectPacketBuilder {
+            connect_packet: ConnectPacket,
+        }
+
+        impl ConnectPacketBuilder {
+            pub fn new() -> Self {
+                ConnectPacketBuilder {
+                    connect_packet: ConnectPacket {
+                        packet_type: packet_types::CONNECT as u8,
+                        packet_type_flags: 0,
+                        protocol_name: String::from("MQTT"),
+                        protocol_version: 5u8,
+                        keep_alive: 0,
+                        variable_header_properties: vec![],
+                        connect_flags_will_retain: false,
+                        connect_flags_will_qos: 0,
+                        connect_flags_will_flag: false,
+                        connect_flags_clean_start: false,
+                        connect_flags: 0,
+                        client_id: "".to_string(),
+                        will_properties: vec![],
+                        will_topic: None,
+                        will_payload: None,
+                        username: None,
+                        password: None,
+                    },
+                }
+            }
+
+            pub fn packet_type(mut self, pt: u8) -> Self {
+                self.connect_packet.packet_type = pt;
+                self
+            }
+
+            pub fn protocol_name(mut self, pn: String) -> Self {
+                self.connect_packet.protocol_name = pn;
+                self
+            }
+
+            pub fn keep_alive(mut self, keep_alive: u16) -> Self {
+                self.connect_packet.keep_alive = keep_alive;
+                self
+            }
+
+            pub fn set_packet_properties(
+                property: Vec<Property>,
+                will_flag: bool,
+            ) -> Result<Vec<Property>, PropertyError> {
+                let mut added_property: Vec<Property> = Vec::with_capacity(100);
+
+                let mut valid_will_properties: Vec<PropertyIdentifiers> = vec![];
+
+                if will_flag {
+                    valid_will_properties = valid_properties_for_will();
+                }
+
+                let invalid_properties = invalid_property_for_packet_type(
+                    &property,
+                    valid_will_properties,
+                    packet_types::CONNECT,
+                );
+
+                if !invalid_properties.is_empty() {
+                    return Err(PropertyError::InvalidProperty(
+                        invalid_properties,
+                        String::from("CONNECT"),
+                    ));
+                };
+
+                let non_unique_properties = check_for_non_unique_properties(&property);
+                if !non_unique_properties.is_empty() {
+                    return Err(PropertyError::PropertyAlreadyInserted(
+                        non_unique_properties,
+                        String::from("CONNECT"),
+                    ));
+                }
+
+                let mut packet_properties: Vec<Property> = vec![];
+                packet_properties.append(&mut added_property);
+
+                Ok(packet_properties)
+            }
+
+            pub fn connect_flags_with_will_retain_flag(mut self, b: bool) -> Self {
+                self.connect_packet.connect_flags_will_retain = b;
+                self
+            }
+
+            pub fn connect_flags_with_will_qos(mut self, q: u8) -> Self {
+                self.connect_packet.connect_flags_will_qos = if q > 2 { 2 } else { q };
+                self
+            }
+
+            pub fn connect_flags_with_clean_start(mut self, b: bool) -> Self {
+                self.connect_packet.connect_flags_clean_start = b;
+                self
+            }
+
+            pub fn connect_flags_with_will_flag(mut self, b: bool) -> Self {
+                self.connect_packet.connect_flags_will_flag = b;
+                self
+            }
+
+            pub fn client_id(mut self, ci: String) -> Self {
+                self.connect_packet.client_id = ci;
+                self
+            }
+
+            pub fn will_properties(
+                mut self,
+                assigned_will_properties: Vec<Property>,
+            ) -> Result<Self, PropertyError> {
+                let mut added_property: Vec<Property> = Vec::with_capacity(100);
+                let mut properties: Vec<Property> = vec![];
+
+                for p in &assigned_will_properties {
+                    properties.push(p.clone())
+                }
+
+                // check for invalid
+                let invalid_will_properties =
+                    invalid_property_for_packet_type(&properties, vec![], packet_types::CONNECT);
+
+                // will properties are only used in the CONNECT packet
+                if !invalid_will_properties.is_empty() {
+                    return Err(PropertyError::InvalidProperty(
+                        invalid_will_properties,
+                        String::from("CONNECT"),
+                    ));
+                };
+
+                // check for duplicates
+                let non_unique_properties =
+                    check_for_non_unique_properties(&assigned_will_properties);
+                if !non_unique_properties.is_empty() {
+                    return Err(PropertyError::PropertyAlreadyInserted(
+                        non_unique_properties,
+                        String::from("CONNECT"),
+                    ));
+                }
+
+                self.connect_packet.will_properties = assigned_will_properties;
+                Ok(self)
+            }
+
+            pub fn will_topic(mut self, topic: Option<String>) -> Self {
+                self.connect_packet.will_topic = topic;
+                self
+            }
+
+            pub fn will_payload(mut self, will_payload: Option<Vec<u8>>) -> Self {
+                self.connect_packet.will_payload = will_payload;
+                self
+            }
+
+            pub fn username(mut self, username: String) -> Self {
+                self.connect_packet.username = Some(username);
+                self
+            }
+
+            pub fn password(mut self, password: String) -> Self {
+                self.connect_packet.password = Some(password);
+                self
+            }
+
+            pub fn generate_connect_flags(connect_packet: &ConnectPacket) -> u8 {
+                let mut connect_flags = 0u8;
+                if connect_packet.username.is_some() {
+                    connect_flags |= 1 << 7;
+                }
+
+                if connect_packet.password.is_some() {
+                    connect_flags |= 1 << 6;
+                }
+
+                connect_flags |= connect_packet.connect_flags_will_qos << 3;
+
+                if connect_packet.connect_flags_will_retain {
+                    connect_flags |= 1 << 2;
+                }
+
+                if connect_packet.connect_flags_clean_start {
+                    connect_flags |= 1 << 1;
+                }
+
+                connect_flags
+            }
+
+            pub fn build(self) -> Result<Vec<u8>, io::Error> {
+                // start of fixed header >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+                // fixed header // control packet type, Remaining length (variable header + payload)
+                let mut fixed_header = BytesMut::with_capacity(5);
+                fixed_header.put_u8(
+                    ((self.connect_packet.packet_type & 0x0f) << 4)
+                        + (self.connect_packet.packet_type_flags & 0x0f),
+                );
+
+                // fixed_header // add remaining length here
+
+                // end of fixed header <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+                // start of variable header >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+                let variable_header = self.generate_variable_header();
+
+                // end of variable header <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+                let (payload, payload_size, variable_header_size) =
+                    self.generate_payload(&variable_header);
+
+                // start of making actual bytes for packet
+                let fixed_header_remaining_length = variable_header_size + payload_size;
+
+                let mut connect_packet = BytesMut::with_capacity(200);
+                variable_byte_integer(fixed_header_remaining_length as u32, &mut fixed_header)
+                    .unwrap();
+                connect_packet.put(fixed_header);
+                connect_packet.put(variable_header);
+                connect_packet.put(payload);
+
+                // end of making actual bytes for packet
+
+                Ok(connect_packet.to_vec())
+            }
+
+            fn generate_payload(self, variable_header: &BytesMut) -> (BytesMut, usize, usize) {
+                // payload details
+                // client identifier, Will properties, will topic, will payload, username, password
+                let mut payload = BytesMut::with_capacity(200);
+                utf8_encoded_string(&self.connect_packet.client_id, &mut payload);
+                // will properties
+
+                let encoded_will_properties =
+                    encode_properties(&self.connect_packet.will_properties);
+
+                let mut encoded_will_properties_size = BytesMut::with_capacity(4);
+                variable_byte_integer(
+                    encoded_will_properties.len() as u32,
+                    &mut encoded_will_properties_size,
+                )
+                .unwrap();
+
+                payload.put(encoded_will_properties_size);
+                payload.put(encoded_will_properties.as_slice());
+
+                // will topic
+                if let Some(will_topic) = self.connect_packet.will_topic {
+                    payload.put_u16(will_topic.len() as u16);
+                    payload.put(will_topic.as_bytes());
+                }
+
+                // will payload
+                if let Some(will_payload) = self.connect_packet.will_payload {
+                    payload.put_u16(will_payload.len() as u16);
+                    payload.put(will_payload.as_slice());
+                }
+
+                //username
+                if let Some(username) = self.connect_packet.username {
+                    payload.put(username.as_bytes());
+                }
+
+                //password
+                if let Some(password) = self.connect_packet.password {
+                    payload.put(password.as_bytes());
+                }
+
+                let payload_size = payload.len();
+                let variable_header_size = variable_header.len();
+
+                // end of payload <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+                (payload, payload_size, variable_header_size)
+            }
+
+            fn generate_variable_header(&self) -> BytesMut {
+                // variable header // Protocol Name, protocol level, connect flags, keep alive and properties
+                let mut variable_header = BytesMut::with_capacity(200);
+                variable_header.put_slice(self.connect_packet.protocol_name.as_bytes());
+
+                variable_header.put_u8(self.connect_packet.protocol_version);
+
+                variable_header.put_u8(ConnectPacketBuilder::generate_connect_flags(
+                    &self.connect_packet,
+                ));
+
+                variable_header.put_u16(self.connect_packet.keep_alive);
+
+                // Connect Properties
+                let encoded_variable_header_properties =
+                    encode_properties(&self.connect_packet.variable_header_properties);
+                let mut encoded_variable_header_properties_size: BytesMut =
+                    BytesMut::with_capacity(4);
+                variable_byte_integer(
+                    encoded_variable_header_properties.len() as u32,
+                    &mut encoded_variable_header_properties_size,
+                )
+                .unwrap();
+                variable_header
+                    .put_slice(encoded_variable_header_properties_size.iter().as_slice());
+                variable_header.put_slice(encoded_variable_header_properties.as_slice());
+                variable_header
+            }
+        }
+
+        // Can use this from all the packets
+        pub fn encode_properties(props: &Vec<Property>) -> Vec<u8> {
+            let mut properties_vec: Vec<u8> = Vec::with_capacity(200);
+
+            for prop_item in props {
+                prop_item.encode(&mut properties_vec);
+            }
+
+            properties_vec
         }
 
         pub struct ConnAck {
@@ -1785,7 +981,7 @@ mod mqtt_broker {
             // variable header
             connect_ack_flags: u8,
             reason_code: ReasonCode,
-            property: HashSet<Property>,
+            property: Vec<Property>,
             //payload
             // no payload
         }
@@ -1797,7 +993,7 @@ mod mqtt_broker {
             //variable_header
             topic_name: String,
             packet_id: u16,
-            property: HashSet<Property>,
+            property: Vec<Property>,
 
             //payload
             application_message: Vec<u8>,
@@ -1811,7 +1007,7 @@ mod mqtt_broker {
             packet_id: u16,
             reason_code: Option<ReasonCode>, // not available if remaining length in fixed header
             // is 2, which means there is only a packet_id in variable header. If there is no Reason code then 0x00(Success) used by the client.
-            property: Option<HashSet<Property>>,
+            property: Option<Vec<Property>>,
             //payload
             //no payload
         }
@@ -1823,10 +1019,10 @@ mod mqtt_broker {
             //variable header
             packet_id: u16,
             reason_code: ReasonCode,
-            property: HashSet<Property>, // if the remaining length is 4 then property length is zero
+            property: Vec<Property>, // if the remaining length is 4 then property length is zero
 
-                                         //payload
-                                         //no payload
+                                     //payload
+                                     //no payload
         }
 
         pub struct PubRel {
@@ -1836,10 +1032,10 @@ mod mqtt_broker {
             //variable header
             packet_id: u16,
             reason_code: ReasonCode,
-            property: HashSet<Property>, // if the remaining length is 4 then property length is zero
+            property: Vec<Property>, // if the remaining length is 4 then property length is zero
 
-                                         //payload
-                                         //no payload
+                                     //payload
+                                     //no payload
         }
 
         pub struct PubComp {
@@ -1849,10 +1045,10 @@ mod mqtt_broker {
             //variable header
             packet_id: u16,
             reason_code: ReasonCode,
-            property: HashSet<Property>, // if the remaining length is 4 then property length is zero
+            property: Vec<Property>, // if the remaining length is 4 then property length is zero
 
-                                         //payload
-                                         //no payload
+                                     //payload
+                                     //no payload
         }
 
         pub struct Subscribe {
@@ -1861,7 +1057,7 @@ mod mqtt_broker {
 
             //variable header
             packet_id: u16,
-            property: HashSet<Property>,
+            property: Vec<Property>,
 
             //payload
             topic_filter: Vec<(String, u8)>,
@@ -1877,6 +1073,89 @@ mod mqtt_broker {
 
             //payload
             reason_code: Vec<ReasonCode>,
+        }
+
+        trait Decoder {
+            fn decode(bytes: &mut BytesMut) -> (Option<ConnectPacket>, Option<ReasonCode>);
+        }
+
+        impl Decoder for crate::mqttbroker::mqtt_broker::packets::ConnectPacket {
+            fn decode(bytes: &mut BytesMut) -> (Option<ConnectPacket>, Option<ReasonCode>) {
+                let pack_type = bytes.get_u8();
+
+                let _packet_size = varint(bytes).unwrap();
+
+                let protocol_name = utf8_string(String::from("protocol name"), bytes).unwrap();
+
+                let protocol_version = bytes.get_u8();
+
+                let connect_flags = bytes.get_u8();
+
+                let keep_alive = bytes.get_u16();
+
+                let variable_header_properties = property(bytes).unwrap();
+
+                // need to check for duplicates in variable header properties
+                // user property can be duplicated
+                // other properties can't be duplicated
+
+                let client_identifier =
+                    utf8_string(String::from("client identifier"), bytes).unwrap();
+
+                let will_properties: Option<Vec<Property>> = if connect_flags == 4u8 {
+                    // Will flag is set
+                    Some(property(bytes).unwrap())
+                } else {
+                    None
+                };
+
+                let will_topic: Option<String> = if connect_flags == 4u8 {
+                    Some(utf8_string(String::from("will_topic"), bytes).unwrap())
+                } else {
+                    None
+                };
+
+                let will_payload: Option<Vec<u8>> = if connect_flags == 4u8 {
+                    Some(binary(String::from("payload"), bytes).unwrap())
+                } else {
+                    None
+                };
+
+                let username = if connect_flags == 4u8 {
+                    Some(utf8_string(String::from("username"), bytes).unwrap())
+                } else {
+                    None
+                };
+
+                let password = if connect_flags == 4u8 {
+                    Some(utf8_string(String::from("password"), bytes).unwrap())
+                } else {
+                    None
+                };
+                // Successful return
+                (
+                    Some(ConnectPacket {
+                        packet_type: None,
+                        packet_type_flags: 0,
+                        protocol_name: None,
+                        protocol_version: None,
+                        connect_flags: None,
+                        keep_alive: None,
+                        variable_header_properties: None,
+                        connect_flags_will_retain: false,
+                        connect_flags_will_qos: 0,
+                        connect_flags_clean_start: false,
+                        will_properties: None,
+                        will_topic: None,
+                        will_payload: None,
+                        username: None,
+                        password: None,
+                        connect_flags_will_flag: false,
+                        client_id: "".to_string(),
+                    }),
+                    None,
+                )
+            }
         }
     }
 

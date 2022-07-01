@@ -7,6 +7,7 @@ use crate::mqttbroker::mqtt_broker::{packet_types, PropertyElement};
 use bytes::{Buf, BytesMut};
 use std::collections::HashMap;
 use thiserror::Error;
+use tracing::debug;
 
 lazy_static! {
     static ref PROPERTYNAME: HashMap<u8, &'static str> = {
@@ -409,6 +410,7 @@ pub fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, Dec
     } else {
         let mut i = b.iter();
         let string_length = *(i.next().unwrap()) as u16 * 256 + *(i.next().unwrap()) as u16;
+        debug!("String {} length is {} ****", name, string_length);
         if (b.len() as u16) < (string_length + 2) {
             Err(DecodeError::MoreBytesRequired(
                 string_length,
@@ -516,14 +518,14 @@ pub fn varint(b: &mut bytes::BytesMut) -> anyhow::Result<VariableByteIntegerT, D
 }
 
 pub fn property(b: &mut bytes::BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> {
-    println!("pre varint length is {}", b.len());
+    debug!("pre varint length is {}", b.len());
     let length = varint(b)?;
-    println!("post varint length is {}", b.len());
+    debug!("post varint length is {}", b.len());
     let mut sub_b = b.split_to((length) as usize);
-    println!("post sub_b is {}", sub_b.len());
+    debug!("post sub_b is {}", sub_b.len());
 
     let mut p_vec: Vec<Property> = vec![];
-    println!("property length {}", length);
+    debug!("property length {}", length);
 
     while !sub_b.is_empty() {
         let property_identifier = sub_b.get_u8();
@@ -597,9 +599,9 @@ pub fn property(b: &mut bytes::BytesMut) -> anyhow::Result<Vec<Property>, Decode
             }
 
             11 => {
-                println!("pre variable_byte_integer sub_p len is {}", sub_b.len());
+                debug!("pre variable_byte_integer sub_p len is {}", sub_b.len());
                 let variable_byte_integer = varint(&mut sub_b)?;
-                println!("post variable_byte_integer sub_p len is {}", sub_b.len());
+                debug!("post variable_byte_integer sub_p len is {}", sub_b.len());
                 Property {
                     element_value: PropertyElement::VariableByteInteger {
                         value: variable_byte_integer,
@@ -640,6 +642,9 @@ mod test {
     use crate::{decode, encode};
     use bytes::BufMut;
     use bytes::BytesMut;
+    use test_log::test;
+    use tracing::{debug, event, info, span, trace, Level};
+    use tracing_subscriber::fmt;
 
     fn payload_format_indicator(val: u8, buf: &mut BytesMut) {
         buf.put_u8(PropertyIdentifiers::PayloadFormatIndicator as u8);
@@ -995,14 +1000,6 @@ mod test {
     }
 
     #[test]
-    fn test_property_payload_with_7_properties_of_different_types() {
-        let b_prop = BytesMut::with_capacity(2);
-        let b = BytesMut::with_capacity(100);
-
-        todo!("fix this")
-    }
-
-    #[test]
     fn test_property_type_byte_using_payload_format_indicator() {
         let mut b_prop = BytesMut::with_capacity(0);
         let mut b = BytesMut::with_capacity(100);
@@ -1096,6 +1093,54 @@ mod test {
                     Property {
                         element_value: PropertyElement::VariableByteInteger { value: 12345 },
                         property_identifier: PropertyIdentifiers::SubscriptionIdentifier as u8
+                    }
+                ],
+                p
+            )
+        }
+    }
+
+    #[test]
+    fn test_property_type_using_all_data_types_permutation2() {
+        let mut b_prop = BytesMut::with_capacity(0);
+        let mut b = BytesMut::with_capacity(100);
+
+        subscription_identifier(12345, &mut b_prop);
+        message_expiry_interval(123456, &mut b_prop);
+        content_type("hello", &mut b_prop);
+        let mut binary_data = BytesMut::with_capacity(0);
+        binary_data.put(vec![1u8, 2, 3, 4, 5, 6].as_slice());
+        correlation_data(&binary_data, &mut b_prop);
+        payload_format_indicator(99, &mut b_prop);
+
+        variable_byte_integer(b_prop.len() as u32, &mut b);
+        b.put(b_prop);
+        if let Ok(p) = decode::property(&mut b) {
+            assert_eq!(
+                vec![
+                    Property {
+                        element_value: PropertyElement::VariableByteInteger { value: 12345 },
+                        property_identifier: PropertyIdentifiers::SubscriptionIdentifier as u8
+                    },
+                    Property {
+                        element_value: PropertyElement::FourByteInteger { value: 123456 },
+                        property_identifier: PropertyIdentifiers::MessageExpiryInterval as u8,
+                    },
+                    Property {
+                        element_value: PropertyElement::UTF8EncodedString {
+                            value: "hello".to_string()
+                        },
+                        property_identifier: PropertyIdentifiers::ContentType as u8,
+                    },
+                    Property {
+                        element_value: PropertyElement::BinaryData {
+                            value: vec![1u8, 2, 3, 4, 5, 6]
+                        },
+                        property_identifier: PropertyIdentifiers::CorrelationData as u8
+                    },
+                    Property {
+                        element_value: PropertyElement::Byte { value: 99 },
+                        property_identifier: PropertyIdentifiers::PayloadFormatIndicator as u8,
                     }
                 ],
                 p
@@ -1892,9 +1937,20 @@ mod test {
             returned_properties
         );
     }
-
     #[test]
     fn test_zero_user_properties_are_valid() {
+        // let format = fmt::format()
+        //     .with_level(false) // don't include levels in formatted output
+        //     .with_target(false) // don't include targets
+        //     .with_thread_ids(true) // include the thread ID of the current thread
+        //     .with_thread_names(true) // include the name of the current thread
+        //     .compact(); // use the `Compact` formatting style.
+        // let _ = tracing_subscriber::fmt().init();
+        let span = span!(Level::TRACE, "my first span");
+        debug!("////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////");
+        event!(Level::TRACE, "event is cool....");
+        trace!("//////////////////////////");
+        info!("hello from tracing::info");
         let properties = vec![];
         let returned_properties: Vec<Property> = vec![];
         assert_eq!(

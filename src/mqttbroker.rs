@@ -5,7 +5,7 @@ pub mod mqtt_broker {
         VariableByteIntegerT,
     };
     use std::convert::TryFrom;
-    use std::hash::{Hash, Hasher};
+    use std::hash::Hash;
 
     use crate::mqttbroker::mqtt_broker::PropertyIdentifiers::{
         AssignedClientIdentifier, AuthenticationData, AuthenticationMethod, ContentType,
@@ -16,6 +16,7 @@ pub mod mqtt_broker {
         SubscriptionIdentifier, SubscriptionIdentifierAvailable, TopicAlias, TopicAliasMaximum,
         UserProperty, WildcardSubscriptionAvailable, WillDelayInterval,
     };
+    use anyhow::Result;
     use bytes::{BufMut, BytesMut};
 
     pub mod types {
@@ -248,6 +249,8 @@ pub mod mqtt_broker {
     }
 
     pub mod utility {
+        use tracing::debug;
+
         use crate::mqttbroker::mqtt_broker::PropertyIdentifiers::{
             AssignedClientIdentifier, AuthenticationData, AuthenticationMethod, ContentType,
             CorrelationData, MaximumPacketSize, MaximumQos, MessageExpiryInterval,
@@ -272,7 +275,7 @@ pub mod mqtt_broker {
         /// Will return a list of invalid properties
         ///
         pub fn invalid_property_for_packet_type(
-            properties: &Vec<Property>,
+            properties: &[Property],
             validated_properties: Vec<PropertyIdentifiers>,
             pack_type: packet_types,
         ) -> Vec<Property> {
@@ -302,7 +305,7 @@ pub mod mqtt_broker {
 
             let mut invalid: Vec<Property> = Vec::with_capacity(13);
 
-            println!("valid properties are {:?}", valid_property_identifiers);
+            debug!("valid properties are {:?}", valid_property_identifiers);
 
             diff(properties, &valid_property_identifiers, &mut invalid);
 
@@ -310,7 +313,7 @@ pub mod mqtt_broker {
         }
 
         fn diff(
-            left: &Vec<Property>,
+            left: &[Property],
             right: &Vec<PropertyIdentifiers>,
             differences: &mut Vec<Property>,
         ) {
@@ -463,8 +466,7 @@ pub mod mqtt_broker {
                 *count += 1;
             }
 
-            prop_count
-                .retain(|k, v| k.property_identifier != PropertyIdentifiers::UserProperty as u8);
+            prop_count.retain(|k, v| k.property_identifier != UserProperty as u8);
 
             prop_count.retain(|_, v| *v > 1);
             prop_count.into_keys().collect()
@@ -481,7 +483,7 @@ pub mod mqtt_broker {
         pub fn add_property(props: &mut Vec<Property>, mut to_add: Property) -> bool {
             for p in props.iter() {
                 if p.property_identifier == to_add.property_identifier
-                    && p.property_identifier != PropertyIdentifiers::UserProperty as u8
+                    && p.property_identifier != UserProperty as u8
                 {
                     return false;
                 }
@@ -492,11 +494,12 @@ pub mod mqtt_broker {
 
             true
         }
+
         #[cfg(test)]
         mod tests {
             use crate::mqttbroker::mqtt_broker::utility::add_property;
             use crate::mqttbroker::mqtt_broker::{Property, PropertyElement, PropertyIdentifiers};
-
+            use test_log::test;
             #[test]
             fn test_add_property_with_duplicate_property() {
                 let mut properties = vec![Property {
@@ -590,19 +593,20 @@ pub mod mqtt_broker {
         use crate::decode::{binary, property, utf8_string, varint};
         use crate::encode::{utf8_encoded_string, variable_byte_integer};
         use crate::mqttbroker::mqtt_broker::packets::error::PropertyError;
-        use crate::mqttbroker::mqtt_broker::packets::ControlPacket::Connect;
         use crate::mqttbroker::mqtt_broker::utility::{
             check_for_non_unique_properties, invalid_property_for_packet_type,
             valid_properties_for_will,
         };
         use crate::mqttbroker::mqtt_broker::{packet_types, PropertyIdentifiers};
         use crate::mqttbroker::mqtt_broker::{Property, ReasonCode};
+        use anyhow::Error;
         use bytes::{Buf, BufMut, BytesMut};
         use std::collections::HashSet;
         use std::io;
+        use tracing::debug;
 
         mod error {
-            use crate::mqttbroker::mqtt_broker::{Property, PropertyIdentifiers};
+            use crate::mqttbroker::mqtt_broker::Property;
             use thiserror::Error;
 
             #[derive(Error, Debug)]
@@ -635,33 +639,97 @@ pub mod mqtt_broker {
             },
         }
 
-        #[derive(Default)]
-        struct ConnectPacket {
-            // fixed header
-            packet_type: u8,
-            packet_type_flags: u8,
-            // variable header
-            protocol_name: String,
-            protocol_version: u8,
-            keep_alive: u16,
-            variable_header_properties: Vec<Property>,
-            connect_flags_will_retain: bool,
-            connect_flags_will_qos: u8,
-            connect_flags_clean_start: bool,
-            connect_flags_will_flag: bool,
-            connect_flags: u8,
-            // payload
-            client_id: String,
-            will_properties: Vec<Property>,
-            will_topic: Option<String>,
-            will_payload: Option<Vec<u8>>,
-            username: Option<String>,
-            password: Option<String>,
+        use crate::mqttbroker::mqtt_broker::packets::ConnectPacketBuildError::{
+            WillFlagNotSet, WillPayLoadNotSet, WillTopicNotSet,
+        };
+        use thiserror::Error;
+
+        #[derive(Error, Debug)]
+        pub enum ConnectPacketBuildError {
+            #[error("Will flag is not set")]
+            WillFlagNotSet,
+            #[error("Will topic not set")]
+            WillTopicNotSet,
+            #[error("Will payload not set")]
+            WillPayLoadNotSet,
         }
 
-        struct ConnectPacketBuilder {
-            connect_packet: ConnectPacket,
+        mod connect_flags {
+            pub const CLEAN_START: u8 = 1;
+            pub const WILL_FLAG: u8 = 2;
+            pub const WILL_QOS_MASK: u8 = 4 + 8;
+            pub const WILL_QOS0: u8 = 0;
+            pub const WILL_QOS1: u8 = 1 << 2;
+            pub const WILL_QOS2: u8 = 2 << 2;
+            pub const WILL_RETAIN: u8 = 1 << 5;
+            pub const USER_NAME_FLAG: u8 = 1 << 7;
+            pub const PASSWORD_FLAG: u8 = 1 << 6;
         }
+
+        #[derive(Default, Debug, PartialEq, Clone)]
+        pub struct ConnectPacket {
+            // fixed header
+            pub packet_type: u8,
+            pub packet_type_flags: u8,
+            // variable header
+            pub protocol_name: String,
+            pub protocol_version: u8,
+            pub keep_alive: u16,
+            pub variable_header_properties: Vec<Property>,
+            // pub connect_flags_will_retain: bool,
+            // pub connect_flags_will_qos: u8,
+            // pub connect_flags_clean_start: bool,
+            // pub connect_flags_will_flag: bool,
+            connect_flags: u8,
+            // payload
+            pub client_id: String,
+            pub will_properties: Vec<Property>,
+            pub will_topic: String,
+            pub will_payload: Vec<u8>,
+            pub username: String,
+            pub password: String,
+        }
+
+        impl ConnectPacket {
+            pub fn will_flag(&self) -> bool {
+                self.connect_flags & connect_flags::WILL_FLAG > 0
+            }
+
+            pub fn will_retain(&self) -> bool {
+                (self.connect_flags & connect_flags::WILL_RETAIN) > 0
+            }
+            pub fn set_will_retain(&mut self, retain: bool) {
+                if retain {
+                    self.connect_flags |= connect_flags::WILL_RETAIN;
+                    return;
+                }
+
+                self.connect_flags &= !connect_flags::WILL_RETAIN
+            }
+
+            pub fn will_qos(&self) -> u8 {
+                (self.connect_flags & connect_flags::WILL_QOS_MASK) >> 3
+            }
+
+            pub fn set_will_qos(&mut self, qos: u8) {
+                let new_qos = if qos > 2 { 2 } else { qos };
+                self.connect_flags &= !connect_flags::WILL_QOS_MASK | new_qos << 3
+            }
+
+            pub fn clean_start(&self) -> bool {
+                (self.connect_flags & connect_flags::CLEAN_START) > 0
+            }
+
+            pub fn set_clean_start(&mut self, clean_start: bool) {
+                self.connect_flags &= !connect_flags::CLEAN_START | if clean_start { 1 } else { 0 }
+            }
+        }
+        #[derive(Debug)]
+        pub struct ConnectPacketBuilder {
+            pub connect_packet: ConnectPacket,
+        }
+
+        use tracing::instrument;
 
         impl ConnectPacketBuilder {
             pub fn new() -> Self {
@@ -673,17 +741,13 @@ pub mod mqtt_broker {
                         protocol_version: 5u8,
                         keep_alive: 0,
                         variable_header_properties: vec![],
-                        connect_flags_will_retain: false,
-                        connect_flags_will_qos: 0,
-                        connect_flags_will_flag: false,
-                        connect_flags_clean_start: false,
                         connect_flags: 0,
                         client_id: "".to_string(),
                         will_properties: vec![],
-                        will_topic: None,
-                        will_payload: None,
-                        username: None,
-                        password: None,
+                        will_topic: String::from(""),
+                        will_payload: vec![],
+                        username: String::from(""),
+                        password: String::from(""),
                     },
                 }
             }
@@ -743,35 +807,49 @@ pub mod mqtt_broker {
             }
 
             pub fn connect_flags_with_will_retain_flag(mut self, b: bool) -> Self {
-                self.connect_packet.connect_flags_will_retain = b;
+                self.connect_packet.connect_flags != 4;
                 self
             }
 
-            pub fn connect_flags_with_will_qos(mut self, q: u8) -> Self {
-                self.connect_packet.connect_flags_will_qos = if q > 2 { 2 } else { q };
-                self
+            pub fn set_will_retain(&mut self, retain: bool) {
+                if retain {
+                    self.connect_packet.connect_flags |= connect_flags::WILL_RETAIN;
+                    return;
+                }
+
+                self.connect_packet.connect_flags &= !connect_flags::WILL_RETAIN
             }
 
-            pub fn connect_flags_with_clean_start(mut self, b: bool) -> Self {
-                self.connect_packet.connect_flags_clean_start = b;
-                self
+            // pub fn connect_flags_with_will_qos(mut self, q: u8) -> Self {
+            //     self.connect_packet.connect_flags_will_qos = if q > 2 { 2 } else { q };
+            //     self
+            // }
+            //
+
+            pub fn set_will_qos(&mut self, qos: u8) {
+                let new_qos = if qos > 2 { 2 } else { qos };
+                self.connect_packet.connect_flags &= !connect_flags::WILL_QOS_MASK | new_qos << 3
             }
 
-            pub fn connect_flags_with_will_flag(mut self, b: bool) -> Self {
-                self.connect_packet.connect_flags_will_flag = b;
-                self
-            }
+            // pub fn connect_flags_with_clean_start(mut self, b: bool) -> Self {
+            //     self.connect_packet.connect_flags_clean_start = b;
+            //     self
+            // }
+            //
+            // pub fn connect_flags_with_will_flag(mut self, b: bool) -> Self {
+            //     self.connect_packet.connect_flags_will_flag = b;
+            //     self
+            // }
 
             pub fn client_id(mut self, ci: String) -> Self {
                 self.connect_packet.client_id = ci;
                 self
             }
 
-            pub fn will_properties(
+            fn will_properties(
                 mut self,
                 assigned_will_properties: Vec<Property>,
             ) -> Result<Self, PropertyError> {
-                let mut added_property: Vec<Property> = Vec::with_capacity(100);
                 let mut properties: Vec<Property> = vec![];
 
                 for p in &assigned_will_properties {
@@ -804,52 +882,89 @@ pub mod mqtt_broker {
                 Ok(self)
             }
 
-            pub fn will_topic(mut self, topic: Option<String>) -> Self {
+            fn will_topic(mut self, topic: String) -> Self {
                 self.connect_packet.will_topic = topic;
                 self
             }
 
-            pub fn will_payload(mut self, will_payload: Option<Vec<u8>>) -> Self {
+            fn will_payload(mut self, will_payload: Vec<u8>) -> Self {
                 self.connect_packet.will_payload = will_payload;
                 self
             }
 
+            pub fn will_message(
+                mut self,
+                will_properties: Vec<Property>,
+                will_topic: String,
+                will_payload: Vec<u8>,
+            ) -> Self {
+                self.connect_packet.will_properties = will_properties;
+                self.connect_packet.will_topic = will_topic;
+                self.connect_packet.will_payload = will_payload;
+                self.connect_packet.connect_flags |= connect_flags::WILL_FLAG;
+
+                self
+            }
+
             pub fn username(mut self, username: String) -> Self {
-                self.connect_packet.username = Some(username);
+                self.connect_packet.username = username;
                 self
             }
 
             pub fn password(mut self, password: String) -> Self {
-                self.connect_packet.password = Some(password);
+                self.connect_packet.password = password;
                 self
             }
 
             pub fn generate_connect_flags(connect_packet: &ConnectPacket) -> u8 {
                 let mut connect_flags = 0u8;
-                if connect_packet.username.is_some() {
-                    connect_flags |= 1 << 7;
+                if !connect_packet.username.is_empty() {
+                    connect_flags |= connect_flags::USER_NAME_FLAG;
                 }
 
-                if connect_packet.password.is_some() {
-                    connect_flags |= 1 << 6;
+                if !connect_packet.password.is_empty() {
+                    connect_flags |= connect_flags::PASSWORD_FLAG;
                 }
 
-                connect_flags |= connect_packet.connect_flags_will_qos << 3;
-
-                if connect_packet.connect_flags_will_retain {
-                    connect_flags |= 1 << 2;
-                }
-
-                if connect_packet.connect_flags_clean_start {
-                    connect_flags |= 1 << 1;
-                }
-
+                connect_flags |= connect_packet.connect_flags;
                 connect_flags
             }
 
+            fn will_properties_are_valid(&self) -> anyhow::Result<()> {
+                let is_will_flag_not_set_and_will_properties_set =
+                    !self.connect_packet.connect_flags == connect_flags::WILL_FLAG
+                        && (!self.connect_packet.will_properties.is_empty()
+                            || !self.connect_packet.will_topic.is_empty()
+                            || !self.connect_packet.will_payload.is_empty());
+
+                if is_will_flag_not_set_and_will_properties_set {
+                    return Err(WillFlagNotSet.into());
+                }
+
+                let is_will_flag_set_and_topic_not_set =
+                    self.connect_packet.will_flag() && !self.connect_packet.will_topic.is_empty();
+
+                if is_will_flag_set_and_topic_not_set {
+                    return Err(WillTopicNotSet.into());
+                }
+
+                let is_will_flag_set_and_will_payload_not_set =
+                    self.connect_packet.will_flag() && !self.connect_packet.will_payload.is_empty();
+
+                if is_will_flag_set_and_will_payload_not_set {
+                    return Err(WillPayLoadNotSet.into());
+                }
+
+                Ok(())
+            }
+
+            #[instrument]
             pub fn build(self) -> Result<Vec<u8>, io::Error> {
+                let _ = self.will_properties_are_valid();
+
                 // start of fixed header >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
                 // fixed header // control packet type, Remaining length (variable header + payload)
+
                 let mut fixed_header = BytesMut::with_capacity(5);
                 fixed_header.put_u8(
                     ((self.connect_packet.packet_type & 0x0f) << 4)
@@ -875,6 +990,10 @@ pub mod mqtt_broker {
                 let mut connect_packet = BytesMut::with_capacity(200);
                 variable_byte_integer(fixed_header_remaining_length as u32, &mut fixed_header)
                     .unwrap();
+                debug!("++++++++++++++ fixed header is {:?}", fixed_header);
+                debug!("++++++++++++++ variable header is {:?}", variable_header);
+                debug!("++++++++++++++ payload is {:?}", payload);
+                println!("JELLO WORLD");
                 connect_packet.put(fixed_header);
                 connect_packet.put(variable_header);
                 connect_packet.put(payload);
@@ -905,25 +1024,25 @@ pub mod mqtt_broker {
                 payload.put(encoded_will_properties.as_slice());
 
                 // will topic
-                if let Some(will_topic) = self.connect_packet.will_topic {
-                    payload.put_u16(will_topic.len() as u16);
-                    payload.put(will_topic.as_bytes());
+                if self.connect_packet.will_topic.len() > 0 {
+                    payload.put_u16(self.connect_packet.will_topic.len() as u16);
+                    payload.put(self.connect_packet.will_topic.as_bytes());
                 }
 
                 // will payload
-                if let Some(will_payload) = self.connect_packet.will_payload {
-                    payload.put_u16(will_payload.len() as u16);
-                    payload.put(will_payload.as_slice());
+                if self.connect_packet.will_payload.len() > 0 {
+                    payload.put_u16(self.connect_packet.will_payload.len() as u16);
+                    payload.put(self.connect_packet.will_payload.as_slice());
                 }
 
                 //username
-                if let Some(username) = self.connect_packet.username {
-                    payload.put(username.as_bytes());
+                if self.connect_packet.username.len() > 0 {
+                    payload.put(self.connect_packet.username.as_bytes());
                 }
 
                 //password
-                if let Some(password) = self.connect_packet.password {
-                    payload.put(password.as_bytes());
+                if self.connect_packet.password.len() > 0 {
+                    payload.put(self.connect_packet.password.as_bytes());
                 }
 
                 let payload_size = payload.len();
@@ -936,7 +1055,11 @@ pub mod mqtt_broker {
             fn generate_variable_header(&self) -> BytesMut {
                 // variable header // Protocol Name, protocol level, connect flags, keep alive and properties
                 let mut variable_header = BytesMut::with_capacity(200);
-                variable_header.put_slice(self.connect_packet.protocol_name.as_bytes());
+
+                utf8_encoded_string(
+                    self.connect_packet.protocol_name.as_ref(),
+                    &mut variable_header,
+                );
 
                 variable_header.put_u8(self.connect_packet.protocol_version);
 
@@ -948,7 +1071,12 @@ pub mod mqtt_broker {
 
                 // Connect Properties
                 let encoded_variable_header_properties =
-                    encode_properties(&self.connect_packet.variable_header_properties);
+                    if !&self.connect_packet.variable_header_properties.is_empty() {
+                        encode_properties(&self.connect_packet.variable_header_properties)
+                    } else {
+                        vec![]
+                    };
+
                 let mut encoded_variable_header_properties_size: BytesMut =
                     BytesMut::with_capacity(4);
                 variable_byte_integer(
@@ -972,6 +1100,18 @@ pub mod mqtt_broker {
             }
 
             properties_vec
+        }
+
+        #[cfg(test)]
+        mod encode_test {
+            use crate::mqttbroker::mqtt_broker::packets::ConnectPacketBuilder;
+
+            #[test]
+            pub fn will_properties_not_set() {
+                let packet = ConnectPacketBuilder::new();
+
+                assert_eq!(false, packet.connect_packet.will_flag())
+            }
         }
 
         pub struct ConnAck {
@@ -1075,15 +1215,19 @@ pub mod mqtt_broker {
             reason_code: Vec<ReasonCode>,
         }
 
-        trait Decoder {
+        pub trait Decoder {
             fn decode(bytes: &mut BytesMut) -> (Option<ConnectPacket>, Option<ReasonCode>);
         }
 
-        impl Decoder for crate::mqttbroker::mqtt_broker::packets::ConnectPacket {
+        impl Decoder for ConnectPacket {
             fn decode(bytes: &mut BytesMut) -> (Option<ConnectPacket>, Option<ReasonCode>) {
-                let pack_type = bytes.get_u8();
+                debug!("bytes left at start {}", bytes.len());
+                let packet_type = bytes.get_u8();
+                debug!("bytes left after pack_type {}", bytes.len());
 
-                let _packet_size = varint(bytes).unwrap();
+                let packet_size = varint(bytes).unwrap();
+
+                debug!("bytes left after packet_size {}", bytes.len());
 
                 let protocol_name = utf8_string(String::from("protocol name"), bytes).unwrap();
 
@@ -1094,6 +1238,10 @@ pub mod mqtt_broker {
                 let keep_alive = bytes.get_u16();
 
                 let variable_header_properties = property(bytes).unwrap();
+                debug!(
+                    "bytes left after variable header properties {}",
+                    bytes.len()
+                );
 
                 // need to check for duplicates in variable header properties
                 // user property can be duplicated
@@ -1101,57 +1249,69 @@ pub mod mqtt_broker {
 
                 let client_identifier =
                     utf8_string(String::from("client identifier"), bytes).unwrap();
+                debug!("bytes left are client identifier {}", bytes.len());
 
-                let will_properties: Option<Vec<Property>> = if connect_flags == 4u8 {
+                let is_will_flag = (connect_flags & connect_flags::WILL_FLAG) > 0;
+                debug!(
+                    "current will flag value is {}, raw value is {}",
+                    is_will_flag, connect_flags
+                );
+
+                let will_properties: Option<Vec<Property>> = if is_will_flag {
                     // Will flag is set
                     Some(property(bytes).unwrap())
                 } else {
                     None
                 };
 
-                let will_topic: Option<String> = if connect_flags == 4u8 {
-                    Some(utf8_string(String::from("will_topic"), bytes).unwrap())
+                debug!("bytes left are will_properties {}", bytes.len());
+
+                let will_topic: String = if is_will_flag {
+                    debug!("decoding will topic");
+                    utf8_string(String::from("will_topic"), bytes).unwrap()
                 } else {
-                    None
+                    String::from("")
                 };
 
-                let will_payload: Option<Vec<u8>> = if connect_flags == 4u8 {
-                    Some(binary(String::from("payload"), bytes).unwrap())
+                debug!("bytes left after will_topic {}", bytes.len());
+
+                let will_payload: Vec<u8> = if is_will_flag {
+                    binary(String::from("payload"), bytes).unwrap()
                 } else {
-                    None
+                    vec![]
                 };
 
-                let username = if connect_flags == 4u8 {
-                    Some(utf8_string(String::from("username"), bytes).unwrap())
+                let is_username_flag = connect_flags & connect_flags::USER_NAME_FLAG > 0;
+
+                let username = if is_username_flag {
+                    utf8_string(String::from("username"), bytes).unwrap()
                 } else {
-                    None
+                    String::from("")
                 };
 
-                let password = if connect_flags == 4u8 {
-                    Some(utf8_string(String::from("password"), bytes).unwrap())
+                let is_password_flag = connect_flags & connect_flags::PASSWORD_FLAG > 0;
+
+                let password = if is_password_flag {
+                    utf8_string(String::from("password"), bytes).unwrap()
                 } else {
-                    None
+                    String::from("")
                 };
                 // Successful return
                 (
                     Some(ConnectPacket {
-                        packet_type: None,
+                        packet_type: packet_type >> 4,
                         packet_type_flags: 0,
-                        protocol_name: None,
-                        protocol_version: None,
-                        connect_flags: None,
-                        keep_alive: None,
-                        variable_header_properties: None,
-                        connect_flags_will_retain: false,
-                        connect_flags_will_qos: 0,
-                        connect_flags_clean_start: false,
-                        will_properties: None,
-                        will_topic: None,
-                        will_payload: None,
-                        username: None,
-                        password: None,
-                        connect_flags_will_flag: false,
-                        client_id: "".to_string(),
+                        protocol_name,
+                        protocol_version,
+                        connect_flags,
+                        keep_alive,
+                        variable_header_properties,
+                        will_properties: will_properties.unwrap_or_default(),
+                        will_topic,
+                        will_payload,
+                        username,
+                        password,
+                        client_id: client_identifier,
                     }),
                     None,
                 )
@@ -1163,9 +1323,33 @@ pub mod mqtt_broker {
 
         #[cfg(test)]
         mod test {
+            use crate::mqttbroker::mqtt_broker::packets::{
+                ConnectPacket, ConnectPacketBuilder, Decoder,
+            };
+            use bytes::BytesMut;
+            use tracing::debug;
 
             #[test]
-            fn test_connect() {}
+            fn test_connect() {
+                // generate packet
+                let original_connect_packet = ConnectPacketBuilder::new().will_message(
+                    vec![],
+                    "/topic".to_string(),
+                    vec![77, 66, 12],
+                );
+                let original_connect_packet_clone = original_connect_packet.connect_packet.clone();
+                let encoded_packet = original_connect_packet.build().unwrap();
+                debug!("encoded packet is {:?}", encoded_packet);
+                //decode packet
+                let decoded_connect_packet =
+                    ConnectPacket::decode(&mut BytesMut::from(encoded_packet.as_slice()))
+                        .0
+                        .unwrap();
+
+                assert_eq!(original_connect_packet_clone, decoded_connect_packet);
+                debug!("original packet is {:?}", original_connect_packet_clone);
+                debug!("decoded packet is {:?}", decoded_connect_packet);
+            }
         }
     }
 

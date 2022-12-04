@@ -1,9 +1,5 @@
 use crate::decode::DecodeError::UTF8Errors;
-use crate::mqttbroker::mqtt_broker::types::{
-    BinaryDataT, FourByteIntegerT, TwoByteIntegerT, Utf8stringPairT, VariableByteIntegerT,
-};
-use crate::mqttbroker::mqtt_broker::Property;
-use crate::mqttbroker::mqtt_broker::{packet_types, PropertyElement};
+use crate::mqttbroker::packets::PacketTypes;
 use bytes::{Buf, BytesMut};
 use std::collections::HashMap;
 use thiserror::Error;
@@ -12,33 +8,93 @@ use tracing::debug;
 lazy_static! {
     static ref PROPERTYNAME: HashMap<u8, &'static str> = {
         let mut h = HashMap::new();
-        h.insert(1, "Payload Format Indicator");
-        h.insert(2, "Message Expiry Interval");
-        h.insert(3, "Content Type");
-        h.insert(8, "Response Topic");
-        h.insert(9, "Correlation Data");
-        h.insert(11, "Subscription Identifier");
-        h.insert(17, "Session Expiry Interval");
-        h.insert(18, "Assigned Client Identifier");
-        h.insert(19, "Server Keep Alive");
-        h.insert(21, "Authentication Method");
-        h.insert(22, "Authentication Data");
-        h.insert(23, "Request Problem Information");
-        h.insert(24, "Will Delay Interval");
-        h.insert(25, "Request Response Information");
-        h.insert(26, "Response Information");
-        h.insert(28, "Server Reference");
-        h.insert(31, "Reason String");
-        h.insert(33, "Receive Maximum");
-        h.insert(34, "Topic Alias Maximum");
-        h.insert(35, "Topic Alias");
-        h.insert(36, "Maximum QoS");
-        h.insert(37, "Retain Available");
-        h.insert(38, "User Property");
-        h.insert(39, "Maximum Packet Size");
-        h.insert(40, "Wildcard Subscription Available");
-        h.insert(41, "Subscription Identifier Available");
-        h.insert(42, "Shared Subscription Available");
+        h.insert(
+            PropertyIdentifier::PayloadFormatIndicator as u8,
+            "Payload Format Indicator",
+        );
+        h.insert(
+            PropertyIdentifier::MessageExpiryInterval as u8,
+            "Message Expiry Interval",
+        );
+        h.insert(PropertyIdentifier::ContentType as u8, "Content Type");
+        h.insert(PropertyIdentifier::ResponseTopic as u8, "Response Topic");
+        h.insert(
+            PropertyIdentifier::CorrelationData as u8,
+            "Correlation Data",
+        );
+        h.insert(
+            PropertyIdentifier::SubscriptionIdentifier as u8,
+            "Subscription Identifier",
+        );
+        h.insert(
+            PropertyIdentifier::SessionExpiryInterval as u8,
+            "Session Expiry Interval",
+        );
+        h.insert(
+            PropertyIdentifier::AssignedClientIdentifier as u8,
+            "Assigned Client Identifier",
+        );
+        h.insert(
+            PropertyIdentifier::ServerKeepAlive as u8,
+            "Server Keep Alive",
+        );
+        h.insert(
+            PropertyIdentifier::AuthenticationMethod as u8,
+            "Authentication Method",
+        );
+        h.insert(
+            PropertyIdentifier::AuthenticationData as u8,
+            "Authentication Data",
+        );
+        h.insert(
+            PropertyIdentifier::RequestProblemInformation as u8,
+            "Request Problem Information",
+        );
+        h.insert(
+            PropertyIdentifier::WillDelayInterval as u8,
+            "Will Delay Interval",
+        );
+        h.insert(
+            PropertyIdentifier::RequestResponseInformation as u8,
+            "Request Response Information",
+        );
+        h.insert(
+            PropertyIdentifier::ResponseInformation as u8,
+            "Response Information",
+        );
+        h.insert(
+            PropertyIdentifier::ServerReference as u8,
+            "Server Reference",
+        );
+        h.insert(PropertyIdentifier::ReasonString as u8, "Reason String");
+        h.insert(PropertyIdentifier::ReceiveMaximum as u8, "Receive Maximum");
+        h.insert(
+            PropertyIdentifier::TopicAliasMaximum as u8,
+            "Topic Alias Maximum",
+        );
+        h.insert(PropertyIdentifier::TopicAlias as u8, "Topic Alias");
+        h.insert(PropertyIdentifier::MaximumQos as u8, "Maximum QoS");
+        h.insert(
+            PropertyIdentifier::RetainAvailable as u8,
+            "Retain Available",
+        );
+        h.insert(PropertyIdentifier::UserProperty as u8, "User Property");
+        h.insert(
+            PropertyIdentifier::MaximumPacketSize as u8,
+            "Maximum Packet Size",
+        );
+        h.insert(
+            PropertyIdentifier::WildcardSubscriptionAvailable as u8,
+            "Wildcard Subscription Available",
+        );
+        h.insert(
+            PropertyIdentifier::SubscriptionIdentifierAvailable as u8,
+            "Subscription Identifier Available",
+        );
+        h.insert(
+            PropertyIdentifier::SharedSubscriptionAvailable as u8,
+            "Shared Subscription Available",
+        );
         h
     };
 }
@@ -50,327 +106,184 @@ pub enum PayLoad {
 }
 
 lazy_static! {
-    static ref PAYLOADREQUIREDSTATUS: HashMap<packet_types, PayLoad> = {
-        let mut h: HashMap<packet_types, PayLoad> = HashMap::new();
-        h.insert(packet_types::CONNECT, PayLoad::Required);
-        h.insert(packet_types::CONNACK, PayLoad::None);
-        h.insert(packet_types::PUBLISH, PayLoad::Optional);
-        h.insert(packet_types::PUBACK, PayLoad::None);
-        h.insert(packet_types::PUBREC, PayLoad::None);
-        h.insert(packet_types::PUBREL, PayLoad::None);
-        h.insert(packet_types::PUBCOMP, PayLoad::None);
-        h.insert(packet_types::SUBSCRIBE, PayLoad::Required);
-        h.insert(packet_types::SUBACK, PayLoad::Required);
-        h.insert(packet_types::UNSUBSCRIBE, PayLoad::Required);
-        h.insert(packet_types::UNSUBACK, PayLoad::Required);
-        h.insert(packet_types::PINGREQ, PayLoad::None);
-        h.insert(packet_types::PINGRESP, PayLoad::None);
-        h.insert(packet_types::DISCONNECT, PayLoad::None);
-        h.insert(packet_types::AUTH, PayLoad::None);
+    static ref PAYLOADREQUIREDSTATUS: HashMap<PacketTypes, PayLoad> = {
+        let mut h: HashMap<PacketTypes, PayLoad> = HashMap::new();
+        h.insert(PacketTypes::Connect, PayLoad::Required);
+        h.insert(PacketTypes::Connack, PayLoad::None);
+        h.insert(PacketTypes::Publish, PayLoad::Optional);
+        h.insert(PacketTypes::Puback, PayLoad::None);
+        h.insert(PacketTypes::Pubrec, PayLoad::None);
+        h.insert(PacketTypes::Pubrel, PayLoad::None);
+        h.insert(PacketTypes::Pubcomp, PayLoad::None);
+        h.insert(PacketTypes::Subscribe, PayLoad::Required);
+        h.insert(PacketTypes::Suback, PayLoad::Required);
+        h.insert(PacketTypes::Unsubscribe, PayLoad::Required);
+        h.insert(PacketTypes::Unsuback, PayLoad::Required);
+        h.insert(PacketTypes::Pingreq, PayLoad::None);
+        h.insert(PacketTypes::Pingresp, PayLoad::None);
+        h.insert(PacketTypes::Disconnect, PayLoad::None);
+        h.insert(PacketTypes::Auth, PayLoad::None);
         h
     };
 }
 
-// lazy_static! {
-//     static ref valid_will_property_codes:[u8;6]  = {
-//         let valid_properties = [PropertyIdentifiers::WillDelayInterval, PropertyIdentifiers::PayloadFormatIndicator, PropertyIdentifiers::MessageExpiryInterval, PropertyIdentifiers::ContentType, PropertyIdentifiers::ResponseTopic, PropertyIdentifiers::CorrelationData]
-//     }
-// }
-
-static valid_will_property_codes: [PropertyIdentifiers; 6] = [
-    PropertyIdentifiers::WillDelayInterval,
-    PropertyIdentifiers::PayloadFormatIndicator,
-    PropertyIdentifiers::MessageExpiryInterval,
-    PropertyIdentifiers::ContentType,
-    PropertyIdentifiers::ResponseTopic,
-    PropertyIdentifiers::CorrelationData,
+static VALID_WILL_PROPERTY_CODES: [PropertyIdentifier; 6] = [
+    PropertyIdentifier::WillDelayInterval,
+    PropertyIdentifier::PayloadFormatIndicator,
+    PropertyIdentifier::MessageExpiryInterval,
+    PropertyIdentifier::ContentType,
+    PropertyIdentifier::ResponseTopic,
+    PropertyIdentifier::CorrelationData,
 ];
 
-use crate::mqttbroker::mqtt_broker::PropertyIdentifiers;
 lazy_static! {
-    static ref VALIDPROPERTYCODES: HashMap<packet_types, Vec<PropertyIdentifiers>> = {
-        let mut vpc: HashMap<packet_types, Vec<PropertyIdentifiers>> = HashMap::new();
+    static ref VALIDPROPERTYCODES: HashMap<PacketTypes, Vec<PropertyIdentifier>> = {
+        let mut vpc: HashMap<PacketTypes, Vec<PropertyIdentifier>> = HashMap::new();
 
         vpc.insert(
-            packet_types::CONNECT,
+            PacketTypes::Connect,
             vec![
-                PropertyIdentifiers::SessionExpiryInterval,
-                PropertyIdentifiers::AuthenticationMethod,
-                PropertyIdentifiers::AuthenticationData,
-                PropertyIdentifiers::RequestProblemInformation,
-                PropertyIdentifiers::RequestResponseInformation,
-                PropertyIdentifiers::ReceiveMaximum,
-                PropertyIdentifiers::TopicAliasMaximum,
-                PropertyIdentifiers::UserProperty,
-                PropertyIdentifiers::MaximumPacketSize,
+                PropertyIdentifier::SessionExpiryInterval,
+                PropertyIdentifier::AuthenticationMethod,
+                PropertyIdentifier::AuthenticationData,
+                PropertyIdentifier::RequestProblemInformation,
+                PropertyIdentifier::RequestResponseInformation,
+                PropertyIdentifier::ReceiveMaximum,
+                PropertyIdentifier::TopicAliasMaximum,
+                PropertyIdentifier::UserProperty,
+                PropertyIdentifier::MaximumPacketSize,
             ],
         );
 
         vpc.insert(
-            packet_types::CONNACK,
+            PacketTypes::Connack,
             vec![
-                PropertyIdentifiers::SessionExpiryInterval,
-                PropertyIdentifiers::AssignedClientIdentifier,
-                PropertyIdentifiers::ServerKeepAlive,
-                PropertyIdentifiers::AuthenticationMethod,
-                PropertyIdentifiers::AuthenticationData,
-                PropertyIdentifiers::ResponseInformation,
-                PropertyIdentifiers::ServerReference,
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::ReceiveMaximum,
-                PropertyIdentifiers::TopicAliasMaximum,
-                PropertyIdentifiers::MaximumQos,
-                PropertyIdentifiers::RetainAvailable,
-                PropertyIdentifiers::UserProperty,
-                PropertyIdentifiers::MaximumPacketSize,
-                PropertyIdentifiers::WildcardSubscriptionAvailable,
-                PropertyIdentifiers::SubscriptionIdentifierAvailable,
-                PropertyIdentifiers::SharedSubscriptionAvailable,
+                PropertyIdentifier::SessionExpiryInterval,
+                PropertyIdentifier::AssignedClientIdentifier,
+                PropertyIdentifier::ServerKeepAlive,
+                PropertyIdentifier::AuthenticationMethod,
+                PropertyIdentifier::AuthenticationData,
+                PropertyIdentifier::ResponseInformation,
+                PropertyIdentifier::ServerReference,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::ReceiveMaximum,
+                PropertyIdentifier::TopicAliasMaximum,
+                PropertyIdentifier::MaximumQos,
+                PropertyIdentifier::RetainAvailable,
+                PropertyIdentifier::UserProperty,
+                PropertyIdentifier::MaximumPacketSize,
+                PropertyIdentifier::WildcardSubscriptionAvailable,
+                PropertyIdentifier::SubscriptionIdentifierAvailable,
+                PropertyIdentifier::SharedSubscriptionAvailable,
             ],
         );
 
         vpc.insert(
-            packet_types::PUBLISH,
+            PacketTypes::Publish,
             vec![
-                PropertyIdentifiers::PayloadFormatIndicator,
-                PropertyIdentifiers::MessageExpiryInterval,
-                PropertyIdentifiers::ContentType,
-                PropertyIdentifiers::ResponseTopic,
-                PropertyIdentifiers::CorrelationData,
-                PropertyIdentifiers::SubscriptionIdentifier,
-                PropertyIdentifiers::TopicAlias,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::PayloadFormatIndicator,
+                PropertyIdentifier::MessageExpiryInterval,
+                PropertyIdentifier::ContentType,
+                PropertyIdentifier::ResponseTopic,
+                PropertyIdentifier::CorrelationData,
+                PropertyIdentifier::SubscriptionIdentifier,
+                PropertyIdentifier::TopicAlias,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::PUBACK,
+            PacketTypes::Puback,
             vec![
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::PUBREC,
+            PacketTypes::Pubrec,
             vec![
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::PUBREL,
+            PacketTypes::Pubrel,
             vec![
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::PUBCOMP,
+            PacketTypes::Pubcomp,
             vec![
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::SUBSCRIBE,
+            PacketTypes::Subscribe,
             vec![
-                PropertyIdentifiers::SubscriptionIdentifier,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::SubscriptionIdentifier,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::SUBACK,
+            PacketTypes::Suback,
             vec![
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::UNSUBSCRIBE,
-            vec![PropertyIdentifiers::UserProperty],
+            PacketTypes::Unsubscribe,
+            vec![PropertyIdentifier::UserProperty],
         );
 
         vpc.insert(
-            packet_types::UNSUBACK,
+            PacketTypes::Unsuback,
             vec![
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::DISCONNECT,
+            PacketTypes::Disconnect,
             vec![
-                PropertyIdentifiers::SessionExpiryInterval,
-                PropertyIdentifiers::ServerReference,
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::SessionExpiryInterval,
+                PropertyIdentifier::ServerReference,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc.insert(
-            packet_types::AUTH,
+            PacketTypes::Auth,
             vec![
-                PropertyIdentifiers::AuthenticationMethod,
-                PropertyIdentifiers::AuthenticationData,
-                PropertyIdentifiers::ReasonString,
-                PropertyIdentifiers::UserProperty,
+                PropertyIdentifier::AuthenticationMethod,
+                PropertyIdentifier::AuthenticationData,
+                PropertyIdentifier::ReasonString,
+                PropertyIdentifier::UserProperty,
             ],
         );
 
         vpc
     };
 }
-use crate::mqttbroker::mqtt_broker::reason_codes;
-lazy_static! {
-    static ref VALIDREASONCODES: HashMap<packet_types, Vec<u8>> = {
-        let mut vrc: HashMap<packet_types, Vec<u8>> = HashMap::new();
-        vrc.insert(
-            packet_types::CONNACK,
-            vec![
-                reason_codes::SUCCESS,
-                reason_codes::UNSPECIFIED_ERROR,
-                reason_codes::MALFORMED_PACKET,
-                reason_codes::PROTOCOL_ERROR,
-                reason_codes::IMPLEMENTATION_SPECIFIC_ERROR,
-                reason_codes::UNSUPPORTED_PROTOCOL_VERSION,
-                reason_codes::CLIENT_IDENTIFIER_NOT_VALID,
-                reason_codes::BAD_USER_NAME_OR_PASSWORD,
-                reason_codes::NOT_AUTHORIZED,
-                reason_codes::SERVER_UNAVAILABLE,
-                reason_codes::SERVER_BUSY,
-                reason_codes::BANNED,
-                reason_codes::BAD_AUTHENTICATION_METHOD,
-                reason_codes::TOPIC_NAME_INVALID,
-                reason_codes::PACKET_TOO_LARGE,
-                reason_codes::QUOTA_EXCEEDED,
-                reason_codes::PAYLOAD_FORMAT_INVALID,
-                reason_codes::RETAIN_NOT_SUPPORTED,
-                reason_codes::QOS_NOT_SUPPORTED,
-                reason_codes::USE_ANOTHER_SERVER,
-                reason_codes::SERVER_MOVED,
-                reason_codes::CONNECTION_RATE_EXCEEDED,
-            ],
-        );
+use crate::mqttbroker::primitive_types::{
+    BinaryData, Byte, FourByteInteger, TwoByteInteger, Utf8EncodedString, Utf8StringPair,
+    VariableByteInteger,
+};
+use crate::mqttbroker::properties::PropertyIdentifier::TopicAlias;
+use crate::mqttbroker::properties::{Property, PropertyIdentifier, PropertyType};
 
-        vrc.insert(
-            packet_types::PUBACK,
-            vec![
-                reason_codes::SUCCESS,
-                reason_codes::NO_MATCHING_SUBSCRIBERS,
-                reason_codes::UNSPECIFIED_ERROR,
-                reason_codes::IMPLEMENTATION_SPECIFIC_ERROR,
-                reason_codes::NOT_AUTHORIZED,
-                reason_codes::TOPIC_NAME_INVALID,
-                reason_codes::PACKET_IDENTIFIER_IN_USE,
-                reason_codes::QUOTA_EXCEEDED,
-                reason_codes::PAYLOAD_FORMAT_INVALID,
-            ],
-        );
-
-        vrc.insert(
-            packet_types::PUBREL,
-            vec![
-                reason_codes::SUCCESS,
-                reason_codes::PACKET_IDENTIFIER_NOT_FOUND,
-            ],
-        );
-
-        vrc.insert(
-            packet_types::PUBCOMP,
-            vec![
-                reason_codes::SUCCESS,
-                reason_codes::PACKET_IDENTIFIER_NOT_FOUND,
-            ],
-        );
-
-        vrc.insert(
-            packet_types::SUBACK,
-            vec![
-                reason_codes::GRANTED_QOS_0,
-                reason_codes::GRANTED_QOS_1,
-                reason_codes::GRANTED_QOS_2,
-                reason_codes::UNSPECIFIED_ERROR,
-                reason_codes::IMPLEMENTATION_SPECIFIC_ERROR,
-                reason_codes::NOT_AUTHORIZED,
-                reason_codes::TOPIC_FILTER_INVALID,
-                reason_codes::PACKET_IDENTIFIER_IN_USE,
-                reason_codes::QUOTA_EXCEEDED,
-                reason_codes::SHARED_SUBSCRIPTIONS_NOT_SUPPORTED,
-                reason_codes::SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED,
-                reason_codes::WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED,
-            ],
-        );
-
-        vrc.insert(
-            packet_types::UNSUBACK,
-            vec![
-                reason_codes::SUCCESS,
-                reason_codes::NO_SUBSCRIPTION_EXISTED,
-                reason_codes::UNSPECIFIED_ERROR,
-                reason_codes::IMPLEMENTATION_SPECIFIC_ERROR,
-                reason_codes::NOT_AUTHORIZED,
-                reason_codes::TOPIC_FILTER_INVALID,
-                reason_codes::PACKET_IDENTIFIER_IN_USE,
-            ],
-        );
-
-        vrc.insert(
-            packet_types::DISCONNECT,
-            vec![
-                reason_codes::NORMAL_DISCONNECTION,
-                reason_codes::DISCONNECT_WITH_WILL_MESSAGE,
-                reason_codes::UNSPECIFIED_ERROR,
-                reason_codes::MALFORMED_PACKET,
-                reason_codes::PROTOCOL_ERROR,
-                reason_codes::IMPLEMENTATION_SPECIFIC_ERROR,
-                reason_codes::NOT_AUTHORIZED,
-                reason_codes::SERVER_BUSY,
-                reason_codes::SERVER_SHUTTING_DOWN,
-                reason_codes::BAD_AUTHENTICATION_METHOD,
-                reason_codes::KEEP_ALIVE_TIMEOUT,
-                reason_codes::SESSION_TAKEN_OVER,
-                reason_codes::TOPIC_FILTER_INVALID,
-                reason_codes::TOPIC_NAME_INVALID,
-                reason_codes::RECEIVE_MAXIMUM_EXCEEDED,
-                reason_codes::TOPIC_ALIAS_INVALID,
-                reason_codes::PACKET_TOO_LARGE,
-                reason_codes::MESSAGE_RATE_TOO_HIGH,
-                reason_codes::QUOTA_EXCEEDED,
-                reason_codes::ADMINISTRATIVE_ACTION,
-                reason_codes::PAYLOAD_FORMAT_INVALID,
-                reason_codes::RETAIN_NOT_SUPPORTED,
-                reason_codes::QOS_NOT_SUPPORTED,
-                reason_codes::USE_ANOTHER_SERVER,
-                reason_codes::SERVER_MOVED,
-                reason_codes::SHARED_SUBSCRIPTIONS_NOT_SUPPORTED,
-                reason_codes::CONNECTION_RATE_EXCEEDED,
-                reason_codes::MAXIMUM_CONNECT_TIME,
-                reason_codes::SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED,
-                reason_codes::WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED,
-            ],
-        );
-
-        vrc.insert(
-            packet_types::AUTH,
-            vec![
-                reason_codes::SUCCESS,
-                reason_codes::CONTINUE_AUTHENTICATION,
-                reason_codes::RE_AUTHENTICATE,
-            ],
-        );
-
-        vrc
-    };
-}
-
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum DecodeError {
     #[error("Not enough bytes decoding {0}")]
     NotEnoughBytes(String),
@@ -382,29 +295,29 @@ pub enum DecodeError {
     UTF8Errors(String),
 }
 
-pub fn two_byte_integer(
+pub fn decode_two_byte_integer(
     name: String,
     b: &mut BytesMut,
-) -> anyhow::Result<TwoByteIntegerT, DecodeError> {
+) -> anyhow::Result<TwoByteInteger, DecodeError> {
     if b.len() < 2 {
         Err(DecodeError::MoreBytesRequired(2, b.len() as u16, name))
     } else {
-        Ok(b.get_u16())
+        Ok(TwoByteInteger::new(b.get_u16()))
     }
 }
 
-pub fn four_byte_integer(
+pub fn decode_four_byte_integer(
     name: String,
     b: &mut BytesMut,
-) -> anyhow::Result<FourByteIntegerT, DecodeError> {
+) -> anyhow::Result<FourByteInteger, DecodeError> {
     if b.len() < 4 {
         Err(DecodeError::MoreBytesRequired(4, b.len() as u16, name))
     } else {
-        Ok(b.get_u32())
+        Ok(FourByteInteger::new(b.get_u32()))
     }
 }
 
-pub fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, DecodeError> {
+pub fn decode_utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, DecodeError> {
     if b.len() < 2 {
         Err(DecodeError::NotEnoughBytes(name))
     } else {
@@ -428,7 +341,7 @@ pub fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, Dec
     }
 }
 
-pub fn binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryDataT, DecodeError> {
+pub fn decode_binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryData, DecodeError> {
     if b.len() < 2 {
         Err(DecodeError::NotEnoughBytes(name))
     } else {
@@ -445,20 +358,20 @@ pub fn binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryDataT, Dec
             b.advance(2);
             let binary = b.split_to(string_length as usize);
 
-            Ok(binary.to_vec())
+            Ok(BinaryData::new(binary.to_vec()))
         }
     }
 }
 
-fn utf8_string_pair(
+fn decode_utf8_string_pair(
     name: String,
     b: &mut BytesMut,
-) -> anyhow::Result<Utf8stringPairT, DecodeError> {
+) -> anyhow::Result<Utf8StringPair, DecodeError> {
     let mut key: String = String::from("empty");
     let mut value: String = String::from("empty");
     let name_of_key = format!("key of {0}", name);
     let name_of_value = format!("value of {0}", name);
-    match utf8_string(name_of_key, b) {
+    match decode_utf8_string(name_of_key, b) {
         Ok(k) => {
             key = k;
         }
@@ -471,7 +384,7 @@ fn utf8_string_pair(
         Err(DecodeError::UTF8Errors(name)) => return Err(DecodeError::UTF8Errors(name)),
         _ => {}
     }
-    match utf8_string(name_of_value, b) {
+    match decode_utf8_string(name_of_value, b) {
         Ok(v) => {
             value = v;
         }
@@ -489,10 +402,11 @@ fn utf8_string_pair(
         _ => {}
     }
 
-    Ok(Utf8stringPairT { key, value })
+    // Ok(Utf8stringPair { key, value })
+    Ok(Utf8StringPair(key, value))
 }
 
-pub fn varint(b: &mut bytes::BytesMut) -> anyhow::Result<VariableByteIntegerT, DecodeError> {
+pub fn decode_varint(b: &mut BytesMut) -> anyhow::Result<VariableByteInteger, DecodeError> {
     let mut pos: usize = 0;
     let mut multiplier = 1u32;
     let mut value = 0u32;
@@ -514,96 +428,136 @@ pub fn varint(b: &mut bytes::BytesMut) -> anyhow::Result<VariableByteIntegerT, D
         pos += 1;
     }
     b.advance(pos + 1);
-    Ok(value)
+    Ok(VariableByteInteger::new(value))
 }
 
-pub fn property(b: &mut bytes::BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> {
+pub fn decode_property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> {
     debug!("pre varint length is {}", b.len());
-    let length = varint(b)?;
+    let length = decode_varint(b)?;
     debug!("post varint length is {}", b.len());
-    let mut sub_b = b.split_to((length) as usize);
+    let mut sub_b = b.split_to(*length.as_ref() as usize);
     debug!("post sub_b is {}", sub_b.len());
 
     let mut p_vec: Vec<Property> = vec![];
-    debug!("property length {}", length);
+    debug!("property length {}", length.as_ref());
 
     while !sub_b.is_empty() {
         let property_identifier = sub_b.get_u8();
         let p = match property_identifier {
-            1 | 23 | 25 | 36 | 37 | 40 | 41 | 42 => Property {
-                element_value: PropertyElement::Byte {
-                    value: sub_b.get_u8(),
-                },
-                property_identifier,
-            },
-            2 | 17 | 24 | 39 => {
-                let four_byte_integer = four_byte_integer(
+            prop if [
+                PropertyIdentifier::PayloadFormatIndicator as u8,
+                PropertyIdentifier::RequestProblemInformation as u8,
+                PropertyIdentifier::RequestResponseInformation as u8,
+                PropertyIdentifier::MaximumQos as u8,
+                PropertyIdentifier::RetainAvailable as u8,
+                PropertyIdentifier::WildcardSubscriptionAvailable as u8,
+                PropertyIdentifier::SharedSubscriptionAvailable as u8,
+            ]
+            .contains(&prop) =>
+            {
+                Property {
+                    element_value: PropertyType::Byte {
+                        value: Byte::new(sub_b.get_u8()),
+                    },
+                    property_identifier,
+                }
+            }
+            prop if [
+                PropertyIdentifier::MessageExpiryInterval as u8,
+                PropertyIdentifier::SessionExpiryInterval as u8,
+                PropertyIdentifier::WillDelayInterval as u8,
+                PropertyIdentifier::MaximumPacketSize as u8,
+            ]
+            .contains(&prop) =>
+            {
+                let four_byte_integer = decode_four_byte_integer(
                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
                     &mut sub_b,
                 )?;
                 Property {
-                    element_value: PropertyElement::FourByteInteger {
+                    element_value: PropertyType::FourByteInteger {
                         value: four_byte_integer,
                     },
                     property_identifier,
                 }
             }
-            3 | 8 | 18 | 21 | 26 | 28 | 31 => {
-                let str = utf8_string(
+            prop if [
+                PropertyIdentifier::ContentType as u8,
+                PropertyIdentifier::ResponseTopic as u8,
+                PropertyIdentifier::AssignedClientIdentifier as u8,
+                PropertyIdentifier::AuthenticationMethod as u8,
+                PropertyIdentifier::ResponseInformation as u8,
+                PropertyIdentifier::ServerReference as u8,
+                PropertyIdentifier::ReasonString as u8,
+            ]
+            .contains(&prop) =>
+            {
+                let str = decode_utf8_string(
                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
                     &mut sub_b,
                 )?;
 
                 Property {
-                    element_value: PropertyElement::UTF8EncodedString { value: str },
+                    element_value: PropertyType::UTF8EncodedString {
+                        value: Utf8EncodedString::new(str),
+                    },
                     property_identifier,
                 }
             }
-            9 | 22 => {
-                let binary_data = binary(
+            prop if [
+                PropertyIdentifier::CorrelationData as u8,
+                PropertyIdentifier::AuthenticationData as u8,
+            ]
+            .contains(&prop) =>
+            {
+                let binary_data = decode_binary(
                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
                     &mut sub_b,
                 )?;
 
                 Property {
-                    element_value: PropertyElement::BinaryData { value: binary_data },
+                    element_value: PropertyType::BinaryData { value: binary_data },
                     property_identifier,
                 }
             }
-
-            19 | 33 | 34 | 35 => {
-                let two_byte_integer = two_byte_integer(
+            prop if [
+                PropertyIdentifier::ServerKeepAlive as u8,
+                PropertyIdentifier::ReceiveMaximum as u8,
+                PropertyIdentifier::TopicAliasMaximum as u8,
+                TopicAlias as u8,
+            ]
+            .contains(&prop) =>
+            {
+                let two_byte_integer = decode_two_byte_integer(
                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
                     &mut sub_b,
                 )?;
 
                 Property {
-                    element_value: PropertyElement::TwoByteInteger {
+                    element_value: PropertyType::TwoByteInteger {
                         value: two_byte_integer,
                     },
                     property_identifier,
                 }
             }
-
-            38 => {
-                let utf8_string_pair = utf8_string_pair(
+            prop if [PropertyIdentifier::UserProperty as u8].contains(&prop) => {
+                let utf8_string_pair = decode_utf8_string_pair(
                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
                     &mut sub_b,
                 )?;
                 Property {
-                    element_value: PropertyElement::UTF8StringPair {
+                    element_value: PropertyType::UTF8StringPair {
                         value: utf8_string_pair,
                     },
                     property_identifier,
                 }
             }
-
-            11 => {
+            prop if [PropertyIdentifier::SubscriptionIdentifier as u8].contains(&prop) => {
                 debug!("pre variable_byte_integer sub_p len is {}", sub_b.len());
-                let variable_byte_integer = varint(&mut sub_b)?;
+                let variable_byte_integer = decode_varint(&mut sub_b)?;
                 debug!("post variable_byte_integer sub_p len is {}", sub_b.len());
                 Property {
-                    element_value: PropertyElement::VariableByteInteger {
+                    element_value: PropertyType::VariableByteInteger {
                         value: variable_byte_integer,
                     },
                     property_identifier,
@@ -611,8 +565,8 @@ pub fn property(b: &mut bytes::BytesMut) -> anyhow::Result<Vec<Property>, Decode
             }
 
             _ => {
-                //FIXME should return a malformed packet error
-                panic!() // should return a malformed packet Error
+                //FIXME should return a malformed packets error
+                panic!() // should return a malformed packets Error
             }
         };
         p_vec.push(p);
@@ -622,67 +576,68 @@ pub fn property(b: &mut bytes::BytesMut) -> anyhow::Result<Vec<Property>, Decode
 
 #[cfg(test)]
 mod test {
-    use crate::mqttbroker::mqtt_broker::packet_types::{
-        AUTH, CONNACK, CONNECT, DISCONNECT, PINGREQ, PUBACK, PUBCOMP, PUBLISH, PUBREC, PUBREL,
-        SUBACK, SUBSCRIBE, UNSUBACK, UNSUBSCRIBE,
-    };
-    use crate::mqttbroker::mqtt_broker::types::{FourByteIntegerT, Utf8stringPairT};
-    use crate::mqttbroker::mqtt_broker::utility::{
-        check_for_non_unique_properties, invalid_property_for_packet_type,
-        valid_properties_for_will,
-    };
-    use crate::mqttbroker::mqtt_broker::PropertyIdentifiers::{
-        AssignedClientIdentifier, CorrelationData, ResponseTopic, SessionExpiryInterval,
-        SubscriptionIdentifier,
+    // use crate::mqttbroker::mqtt_broker::primitive_types::{
+    //     BinaryData, Byte, FourByteInteger, TwoByteInteger, Utf8EncodedString, Utf8StringPair,
+    //     VariableByteInteger,
+    // };
+    use crate::mqttbroker::packets::PacketTypes;
+
+    use crate::decode::{decode_binary, decode_utf8_string_pair, decode_varint, DecodeError};
+    use crate::encode::{
+        encode_binary_data, encode_utf8_encoded_string, encode_variable_byte_integer, EncodeError,
     };
 
-    use crate::decode::{utf8_string_pair, varint, DecodeError};
-    use crate::encode::{binary_data, utf8_encoded_string, variable_byte_integer, EncodeError};
-    use crate::mqttbroker::mqtt_broker::{Property, PropertyElement, PropertyIdentifiers};
+    use crate::mqttbroker::primitive_types::{
+        BinaryData, Byte, FourByteInteger, TwoByteInteger, Utf8EncodedString, Utf8StringPair,
+        VariableByteInteger,
+    };
+    use crate::mqttbroker::properties::{
+        invalid_property_for_connect_packet_type, invalid_property_for_non_connect_packet_type,
+        non_unique_properties, Property, PropertyIdentifier, PropertyType,
+    };
     use crate::{decode, encode};
     use bytes::BufMut;
     use bytes::BytesMut;
     use test_log::test;
     use tracing::{debug, event, info, span, trace, Level};
-    use tracing_subscriber::fmt;
 
     fn payload_format_indicator(val: u8, buf: &mut BytesMut) {
-        buf.put_u8(PropertyIdentifiers::PayloadFormatIndicator as u8);
+        buf.put_u8(PropertyIdentifier::PayloadFormatIndicator as u8);
         buf.put_u8(val);
     }
 
     fn message_expiry_interval(value: u32, buf: &mut BytesMut) {
-        buf.put_u8(PropertyIdentifiers::MessageExpiryInterval as u8);
+        buf.put_u8(PropertyIdentifier::MessageExpiryInterval as u8);
         buf.put_u32(value);
     }
 
     fn content_type(value: &str, buf: &mut BytesMut) {
-        buf.put_u8(PropertyIdentifiers::ContentType as u8);
-        utf8_encoded_string(value, buf);
+        buf.put_u8(PropertyIdentifier::ContentType as u8);
+        encode_utf8_encoded_string(value, buf);
     }
 
     fn correlation_data(value: &BytesMut, buf: &mut BytesMut) {
-        buf.put_u8(PropertyIdentifiers::CorrelationData as u8);
-        binary_data(value, buf);
+        buf.put_u8(PropertyIdentifier::CorrelationData as u8);
+        encode_binary_data(value, buf);
     }
 
     fn subscription_identifier(value: u32, buf: &mut BytesMut) -> Result<(), EncodeError> {
-        buf.put_u8(PropertyIdentifiers::SubscriptionIdentifier as u8);
-        variable_byte_integer(value, buf)
+        buf.put_u8(PropertyIdentifier::SubscriptionIdentifier as u8);
+        encode_variable_byte_integer(&VariableByteInteger::new(value), buf)
     }
 
     fn session_expiry_interval(value: u32, buf: &mut BytesMut) {
-        buf.put_u8(PropertyIdentifiers::SessionExpiryInterval as u8);
+        buf.put_u8(PropertyIdentifier::SessionExpiryInterval as u8);
         buf.put_u32(value);
     }
 
     fn assigned_client_identifier(value: &str, buf: &mut BytesMut) {
-        buf.put_u8(PropertyIdentifiers::AssignedClientIdentifier as u8);
-        utf8_encoded_string(value, buf);
+        buf.put_u8(PropertyIdentifier::AssignedClientIdentifier as u8);
+        encode_utf8_encoded_string(value, buf);
     }
 
     fn user_property(key: &str, value: &str, buf: &mut BytesMut) {
-        buf.put_u8(PropertyIdentifiers::UserProperty as u8);
+        buf.put_u8(PropertyIdentifier::UserProperty as u8);
         encode::utf8_string_pair(key, value, buf);
     }
 
@@ -690,7 +645,10 @@ mod test {
     fn test_2_byte_integer() {
         let b = &mut BytesMut::with_capacity(2);
         b.put_u16(257);
-        assert_eq!(Ok(257), decode::two_byte_integer(String::from("name"), b));
+        assert_eq!(
+            Ok(TwoByteInteger::new(257)),
+            decode::decode_two_byte_integer(String::from("name"), b)
+        );
     }
 
     #[test]
@@ -704,7 +662,7 @@ mod test {
                 b.len() as u16,
                 name.clone()
             )),
-            decode::two_byte_integer(name, b)
+            decode::decode_two_byte_integer(name, b)
         );
     }
 
@@ -712,7 +670,10 @@ mod test {
     fn test_4_byte_integer() {
         let b = &mut BytesMut::with_capacity(4);
         b.put_u32(257);
-        assert_eq!(Ok(257), decode::four_byte_integer(String::from("name"), b));
+        assert_eq!(
+            Ok(FourByteInteger::new(257)),
+            decode::decode_four_byte_integer(String::from("name"), b)
+        );
     }
 
     #[test]
@@ -726,7 +687,7 @@ mod test {
                 b.len() as u16,
                 name.clone()
             )),
-            decode::four_byte_integer(name, b)
+            decode::decode_four_byte_integer(name, b)
         );
     }
 
@@ -737,7 +698,7 @@ mod test {
         b.put_u16(str.len() as u16);
         b.put_slice(str);
         let name = String::from("name");
-        assert_eq!("hello world", decode::utf8_string(name, b).unwrap());
+        assert_eq!("hello world", decode::decode_utf8_string(name, b).unwrap());
     }
 
     #[test]
@@ -751,7 +712,7 @@ mod test {
         b.put_u8(2);
         let name = String::from("name");
         //assert_eq!("hello world", decode::utf8_string(name, b).unwrap());
-        let decoded = decode::utf8_string(name, b).unwrap();
+        let decoded = decode::decode_utf8_string(name, b).unwrap();
         assert_eq!(3, b.len());
         let vec = b.to_vec();
         assert_eq!(vec![0, 1, 2], vec);
@@ -764,7 +725,7 @@ mod test {
         let name = String::from("name");
         assert_eq!(
             Err(decode::DecodeError::NotEnoughBytes(name.clone())),
-            decode::utf8_string(name, b)
+            decode::decode_utf8_string(name, b)
         );
     }
 
@@ -776,8 +737,8 @@ mod test {
         b.put_u16(str.len() as u16);
         b.put_slice(str.as_slice());
         assert_eq!(
-            Err(decode::DecodeError::UTF8Errors(name.clone())),
-            decode::utf8_string(name, b)
+            Err(DecodeError::UTF8Errors(name.clone())),
+            decode::decode_utf8_string(name, b)
         )
     }
 
@@ -788,7 +749,7 @@ mod test {
         let binary = vec![0, 1, 2, 3, 4, 5];
         b.put_u16(binary.len() as u16);
         b.put_slice(binary.as_slice());
-        assert_eq!(binary, decode::binary(name, b).unwrap());
+        assert_eq!(BinaryData::new(binary), decode_binary(name, b).unwrap());
     }
 
     #[test]
@@ -799,7 +760,7 @@ mod test {
         b.put_u16(binary.len() as u16);
         b.put_slice(binary.as_slice());
         b.put_u8(0); // dummy byte value
-        assert_eq!(binary, decode::binary(name, b).unwrap());
+        assert_eq!(&binary, decode_binary(name, b).unwrap().as_ref());
         assert_eq!(b.len(), 1);
     }
 
@@ -810,9 +771,10 @@ mod test {
         let name = String::from("name");
         assert_eq!(
             Err(DecodeError::NotEnoughBytes(name.clone())),
-            decode::binary(name, b)
+            decode_binary(name, b)
         );
     }
+
     #[test]
     fn test_utf8_string_pair() {
         let key = b"key";
@@ -829,14 +791,11 @@ mod test {
         b.put(b_key);
         b.put(b_value);
 
-        let string_pair = Utf8stringPairT {
-            key: String::from("key"),
-            value: String::from("value"),
-        };
+        let string_pair = Utf8StringPair(String::from("key"), String::from("value"));
 
         assert_eq!(
             string_pair,
-            utf8_string_pair(String::from("property name"), b).unwrap()
+            decode_utf8_string_pair(String::from("property name"), b).unwrap()
         );
     }
 
@@ -845,8 +804,8 @@ mod test {
         let mut b = BytesMut::with_capacity(1);
         b.put_u8(1);
 
-        if let Ok(i) = varint(&mut b) {
-            assert_eq!(i, 1);
+        if let Ok(i) = decode_varint(&mut b) {
+            assert_eq!(*i.as_ref(), 1);
         }
     }
 
@@ -855,8 +814,8 @@ mod test {
         let mut b = BytesMut::with_capacity(1);
         b.put_u8(127);
 
-        if let Ok(i) = varint(&mut b) {
-            assert_eq!(i, 127);
+        if let Ok(i) = decode_varint(&mut b) {
+            assert_eq!(*i.as_ref(), 127);
         }
     }
 
@@ -866,8 +825,8 @@ mod test {
         b.put_u8(127);
         b.put_u8(0);
 
-        if let Ok(i) = varint(&mut b) {
-            assert_eq!(i, 127);
+        if let Ok(i) = decode_varint(&mut b) {
+            assert_eq!(*i.as_ref(), 127);
             assert_eq!(1, b.len());
         }
     }
@@ -877,8 +836,8 @@ mod test {
         b.put_u8(0x80);
         b.put_u8(0x01);
 
-        if let Ok(i) = varint(&mut b) {
-            assert_eq!(i, 128);
+        if let Ok(i) = decode_varint(&mut b) {
+            assert_eq!(*i.as_ref(), 128);
         } else {
             assert!(false);
         }
@@ -890,8 +849,8 @@ mod test {
         b.put_u8(0x80);
         b.put_u8(0x01);
         b.put_u8(0);
-        if let Ok(i) = varint(&mut b) {
-            assert_eq!(i, 128);
+        if let Ok(i) = decode_varint(&mut b) {
+            assert_eq!(*i.as_ref(), 128);
             assert_eq!(1, b.len());
         } else {
             assert!(false);
@@ -906,8 +865,8 @@ mod test {
         b.put_u8(0x01);
         b.put_u8(0);
         b.put_u8(0);
-        if let Ok(i) = varint(&mut b) {
-            assert_eq!(i, 32767);
+        if let Ok(i) = decode_varint(&mut b) {
+            assert_eq!(*i.as_ref(), 32767);
         } else {
             assert!(false);
         }
@@ -920,7 +879,7 @@ mod test {
         b.put_u8(0xFF);
         b.put_u8(0x01);
         b.put_u8(0);
-        if let Ok(_) = varint(&mut b) {
+        if let Ok(_) = decode_varint(&mut b) {
             assert_eq!(b.len(), 1);
         } else {
             assert!(false);
@@ -936,7 +895,7 @@ mod test {
         b.put_u8(0);
         b.put_u8(0);
         b.put_u8(0);
-        if let Ok(_) = varint(&mut b) {
+        if let Ok(_) = decode_varint(&mut b) {
             assert_eq!(b.len(), 3);
         } else {
             assert!(false);
@@ -949,8 +908,8 @@ mod test {
         b.put_u8(0x80);
         b.put_u8(0x80);
         b.put_u8(0x02);
-        if let Ok(i) = varint(&mut b) {
-            assert_eq!(i, 32768);
+        if let Ok(i) = decode_varint(&mut b) {
+            assert_eq!(*i.as_ref(), 32768);
         } else {
             assert!(false);
         }
@@ -964,8 +923,8 @@ mod test {
         b.put_u8(0xFF);
         b.put_u8(0x7f);
 
-        if let Ok(i) = varint(&mut b) {
-            assert_eq!(i, 268_435_455);
+        if let Ok(i) = decode_varint(&mut b) {
+            assert_eq!(*i.as_ref(), 268_435_455);
         } else {
             assert!(false);
         }
@@ -977,9 +936,12 @@ mod test {
         let mut b_prop = BytesMut::with_capacity(2);
         let mut b = BytesMut::with_capacity(100);
 
-        b_prop.put_u8(PropertyIdentifiers::PayloadFormatIndicator as u8); // property identifier
+        b_prop.put_u8(PropertyIdentifier::PayloadFormatIndicator as u8); // property identifier
         b_prop.put_u8(0x0); //
-        if let Ok(..) = encode::variable_byte_integer(b_prop.len() as u32, &mut b) {
+        if let Ok(..) = encode::encode_variable_byte_integer(
+            &VariableByteInteger::new(b_prop.len() as u32),
+            &mut b,
+        ) {
             b.put(b_prop);
 
             assert_eq!(2, *b.get(0).unwrap());
@@ -991,10 +953,10 @@ mod test {
         let b_prop = BytesMut::with_capacity(2);
         let mut b = BytesMut::with_capacity(100);
 
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop.to_vec().as_slice()); //insert payload format indicator property
         let blank_property: Vec<Property> = vec![];
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(blank_property, p)
         }
     }
@@ -1004,17 +966,19 @@ mod test {
         let mut b_prop = BytesMut::with_capacity(0);
         let mut b = BytesMut::with_capacity(100);
 
-        b_prop.put_u8(PropertyIdentifiers::PayloadFormatIndicator as u8); // property identifier, Payload format indicator
+        b_prop.put_u8(PropertyIdentifier::PayloadFormatIndicator as u8); // property identifier, Payload format indicator
         b_prop.put_u8(0x02); // value
 
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop); //insert payload format indicator property
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![Property {
-                    element_value: PropertyElement::Byte { value: 2 },
-                    property_identifier: PropertyIdentifiers::PayloadFormatIndicator as u8
+                    element_value: PropertyType::Byte {
+                        value: Byte::new(2)
+                    },
+                    property_identifier: PropertyIdentifier::PayloadFormatIndicator as u8
                 }],
                 p
             )
@@ -1026,25 +990,29 @@ mod test {
         let mut b_prop = BytesMut::with_capacity(0);
         let mut b = BytesMut::with_capacity(100);
 
-        b_prop.put_u8(PropertyIdentifiers::PayloadFormatIndicator as u8); // property identifier, Payload format indicator
+        b_prop.put_u8(PropertyIdentifier::PayloadFormatIndicator as u8); // property identifier, Payload format indicator
         b_prop.put_u8(0x02); // value
 
-        b_prop.put_u8(PropertyIdentifiers::PayloadFormatIndicator as u8); // property identifier, Payload format indicator
+        b_prop.put_u8(PropertyIdentifier::PayloadFormatIndicator as u8); // property identifier, Payload format indicator
         b_prop.put_u8(0x03); // value
 
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop); //insert payload format indicator property
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![
                     Property {
-                        element_value: PropertyElement::Byte { value: 2 },
-                        property_identifier: PropertyIdentifiers::PayloadFormatIndicator as u8
+                        element_value: PropertyType::Byte {
+                            value: Byte::new(2)
+                        },
+                        property_identifier: PropertyIdentifier::PayloadFormatIndicator as u8
                     },
                     Property {
-                        element_value: PropertyElement::Byte { value: 3 },
-                        property_identifier: PropertyIdentifiers::PayloadFormatIndicator as u8
+                        element_value: PropertyType::Byte {
+                            value: Byte::new(3)
+                        },
+                        property_identifier: PropertyIdentifier::PayloadFormatIndicator as u8
                     },
                 ],
                 p
@@ -1065,34 +1033,40 @@ mod test {
         correlation_data(&binary_data, &mut b_prop);
         subscription_identifier(12345, &mut b_prop);
 
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop);
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![
                     Property {
-                        element_value: PropertyElement::Byte { value: 99 },
-                        property_identifier: PropertyIdentifiers::PayloadFormatIndicator as u8,
-                    },
-                    Property {
-                        element_value: PropertyElement::FourByteInteger { value: 123456 },
-                        property_identifier: PropertyIdentifiers::MessageExpiryInterval as u8,
-                    },
-                    Property {
-                        element_value: PropertyElement::UTF8EncodedString {
-                            value: "hello".to_string()
+                        element_value: PropertyType::Byte {
+                            value: Byte::new(99)
                         },
-                        property_identifier: PropertyIdentifiers::ContentType as u8,
+                        property_identifier: PropertyIdentifier::PayloadFormatIndicator as u8,
                     },
                     Property {
-                        element_value: PropertyElement::BinaryData {
-                            value: vec![1u8, 2, 3, 4, 5, 6]
+                        element_value: PropertyType::FourByteInteger {
+                            value: FourByteInteger::new(123456)
                         },
-                        property_identifier: PropertyIdentifiers::CorrelationData as u8
+                        property_identifier: PropertyIdentifier::MessageExpiryInterval as u8,
                     },
                     Property {
-                        element_value: PropertyElement::VariableByteInteger { value: 12345 },
-                        property_identifier: PropertyIdentifiers::SubscriptionIdentifier as u8
+                        element_value: PropertyType::UTF8EncodedString {
+                            value: Utf8EncodedString::new("hello".to_string())
+                        },
+                        property_identifier: PropertyIdentifier::ContentType as u8,
+                    },
+                    Property {
+                        element_value: PropertyType::BinaryData {
+                            value: BinaryData::new(vec![1u8, 2, 3, 4, 5, 6])
+                        },
+                        property_identifier: PropertyIdentifier::CorrelationData as u8
+                    },
+                    Property {
+                        element_value: PropertyType::VariableByteInteger {
+                            value: VariableByteInteger::new(12345)
+                        },
+                        property_identifier: PropertyIdentifier::SubscriptionIdentifier as u8
                     }
                 ],
                 p
@@ -1113,34 +1087,40 @@ mod test {
         correlation_data(&binary_data, &mut b_prop);
         payload_format_indicator(99, &mut b_prop);
 
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop);
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![
                     Property {
-                        element_value: PropertyElement::VariableByteInteger { value: 12345 },
-                        property_identifier: PropertyIdentifiers::SubscriptionIdentifier as u8
-                    },
-                    Property {
-                        element_value: PropertyElement::FourByteInteger { value: 123456 },
-                        property_identifier: PropertyIdentifiers::MessageExpiryInterval as u8,
-                    },
-                    Property {
-                        element_value: PropertyElement::UTF8EncodedString {
-                            value: "hello".to_string()
+                        element_value: PropertyType::VariableByteInteger {
+                            value: VariableByteInteger::new(12345)
                         },
-                        property_identifier: PropertyIdentifiers::ContentType as u8,
+                        property_identifier: PropertyIdentifier::SubscriptionIdentifier as u8
                     },
                     Property {
-                        element_value: PropertyElement::BinaryData {
-                            value: vec![1u8, 2, 3, 4, 5, 6]
+                        element_value: PropertyType::FourByteInteger {
+                            value: FourByteInteger::new(123456)
                         },
-                        property_identifier: PropertyIdentifiers::CorrelationData as u8
+                        property_identifier: PropertyIdentifier::MessageExpiryInterval as u8,
                     },
                     Property {
-                        element_value: PropertyElement::Byte { value: 99 },
-                        property_identifier: PropertyIdentifiers::PayloadFormatIndicator as u8,
+                        element_value: PropertyType::UTF8EncodedString {
+                            value: Utf8EncodedString::new("hello".to_string())
+                        },
+                        property_identifier: PropertyIdentifier::ContentType as u8,
+                    },
+                    Property {
+                        element_value: PropertyType::BinaryData {
+                            value: BinaryData::new(vec![1u8, 2, 3, 4, 5, 6])
+                        },
+                        property_identifier: PropertyIdentifier::CorrelationData as u8
+                    },
+                    Property {
+                        element_value: PropertyType::Byte {
+                            value: Byte::new(99)
+                        },
+                        property_identifier: PropertyIdentifier::PayloadFormatIndicator as u8,
                     }
                 ],
                 p
@@ -1152,31 +1132,61 @@ mod test {
     fn test_for_invalid_properties_for_packet_type_connect_without_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                AssignedClientIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::AssignedClientIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                SessionExpiryInterval as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SessionExpiryInterval as u8,
             ),
-            Property::new(PropertyElement::Byte { value: 0u8 }, CorrelationData as u8),
-            Property::new(PropertyElement::Byte { value: 0u8 }, ResponseTopic as u8),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
+            ),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
+            ),
         ];
 
-        let invalid_property_set: Vec<PropertyIdentifiers> =
-            vec![AssignedClientIdentifier, CorrelationData, ResponseTopic];
+        let invalid_property_set: Vec<PropertyIdentifier> = vec![
+            PropertyIdentifier::AssignedClientIdentifier,
+            PropertyIdentifier::CorrelationData,
+            PropertyIdentifier::ResponseTopic,
+        ];
         let invalid_property_set: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                AssignedClientIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::AssignedClientIdentifier as u8,
             ),
-            Property::new(PropertyElement::Byte { value: 0u8 }, CorrelationData as u8),
-            Property::new(PropertyElement::Byte { value: 0u8 }, ResponseTopic as u8),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
+            ),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
+            ),
         ];
 
         assert_eq!(
             invalid_property_set,
-            invalid_property_for_packet_type(&assigned_property, vec![], CONNECT)
+            //invalid_property_for_packet_type(&assigned_property, vec![], CONNECT)
+            invalid_property_for_connect_packet_type(&assigned_property, false)
         );
     }
 
@@ -1184,38 +1194,49 @@ mod test {
     fn test_for_invalid_properties_for_packet_type_connect_with_will_flag_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                AssignedClientIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::AssignedClientIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                SessionExpiryInterval as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SessionExpiryInterval as u8,
             ),
-            Property::new(PropertyElement::Byte { value: 0u8 }, CorrelationData as u8),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                AssignedClientIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
+            ),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::AssignedClientIdentifier as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                AssignedClientIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::AssignedClientIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                AssignedClientIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::AssignedClientIdentifier as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(
-                &assigned_property,
-                valid_properties_for_will(),
-                CONNECT
-            )
+            invalid_property_for_connect_packet_type(&assigned_property, true)
         );
     }
 
@@ -1223,29 +1244,55 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_connack_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                SessionExpiryInterval as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SessionExpiryInterval as u8,
             ),
-            Property::new(PropertyElement::Byte { value: 0u8 }, CorrelationData as u8),
-            Property::new(PropertyElement::Byte { value: 0u8 }, ResponseTopic as u8),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
+            ),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
+            ),
         ];
 
         let invalid_property_set: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
-            Property::new(PropertyElement::Byte { value: 0u8 }, CorrelationData as u8),
-            Property::new(PropertyElement::Byte { value: 0u8 }, ResponseTopic as u8),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
+            ),
+            Property::new(
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
+            ),
         ];
 
         assert_eq!(
             invalid_property_set,
-            invalid_property_for_packet_type(&assigned_property, vec![], CONNACK)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Connack)
         );
     }
 
@@ -1253,27 +1300,35 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_publish_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SessionExpiryInterval as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SessionExpiryInterval as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![Property::new(
-            PropertyElement::Byte { value: 0u8 },
-            PropertyIdentifiers::SessionExpiryInterval as u8,
+            PropertyType::Byte {
+                value: Byte::new(0u8),
+            },
+            PropertyIdentifier::SessionExpiryInterval as u8,
         )];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], PUBLISH)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Publish)
         );
     }
 
@@ -1283,33 +1338,43 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_puback_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], PUBACK)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Puback)
         );
     }
 
@@ -1318,33 +1383,43 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_pubrec_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], PUBREC)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Pubrec)
         );
     }
 
@@ -1353,33 +1428,43 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_pubrel_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], PUBREL)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Pubrel)
         );
     }
 
@@ -1388,33 +1473,43 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_pubcomp_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], PUBCOMP)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Pubcomp)
         );
     }
 
@@ -1423,40 +1518,57 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_subscribe_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
         ];
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], SUBSCRIBE)
+            invalid_property_for_non_connect_packet_type(
+                &assigned_property,
+                PacketTypes::Subscribe
+            )
         );
     }
 
@@ -1465,41 +1577,55 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_suback_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], SUBACK)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Suback)
         );
     }
 
@@ -1508,45 +1634,64 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_unsubscribe_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], UNSUBSCRIBE)
+            invalid_property_for_non_connect_packet_type(
+                &assigned_property,
+                PacketTypes::Unsubscribe
+            )
         );
     }
     // unsuback
@@ -1554,45 +1699,61 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_unsuback_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::UserProperty as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::UserProperty as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], UNSUBACK),
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Unsuback),
         );
     }
     // pingreq
@@ -1600,53 +1761,73 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_pingreq_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::UserProperty as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::UserProperty as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::UserProperty as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::UserProperty as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], PINGREQ)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Pingreq)
         );
     }
 
@@ -1655,45 +1836,64 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_disconnect_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::UserProperty as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::UserProperty as u8,
             ),
         ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], DISCONNECT)
+            invalid_property_for_non_connect_packet_type(
+                &assigned_property,
+                PacketTypes::Disconnect
+            )
         );
     }
     // auth
@@ -1701,48 +1901,67 @@ mod test {
     fn should_return_invalid_properties_for_packet_type_auth_with_will_flag_not_set() {
         let assigned_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ReasonString as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ReasonString as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::UserProperty as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::UserProperty as u8,
             ),
         ];
 
-        let invalid_property_set: Vec<PropertyIdentifiers> =
-            vec![ResponseTopic, CorrelationData, SubscriptionIdentifier];
+        let invalid_property_set: Vec<PropertyIdentifier> = vec![
+            PropertyIdentifier::ResponseTopic,
+            PropertyIdentifier::CorrelationData,
+            PropertyIdentifier::SubscriptionIdentifier,
+        ];
 
         let invalid_property: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::ResponseTopic as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::ResponseTopic as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::CorrelationData as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::CorrelationData as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::SubscriptionIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::SubscriptionIdentifier as u8,
             ),
         ];
 
         assert_eq!(
             invalid_property,
-            invalid_property_for_packet_type(&assigned_property, vec![], AUTH)
+            invalid_property_for_non_connect_packet_type(&assigned_property, PacketTypes::Auth)
         );
     }
     #[test]
@@ -1752,13 +1971,15 @@ mod test {
         b_prop.put_u8(0x02); // property identifier, message expiry interval
         b_prop.put_u32(0x01); // message expiry interval
 
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop);
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![Property {
-                    element_value: PropertyElement::FourByteInteger { value: 1 },
+                    element_value: PropertyType::FourByteInteger {
+                        value: FourByteInteger::new(1)
+                    },
                     property_identifier: 0x02,
                 }],
                 p
@@ -1771,21 +1992,21 @@ mod test {
         let mut b_prop = BytesMut::with_capacity(2);
         let mut b = BytesMut::with_capacity(100);
         let b_string = String::from("hello world");
-        b_prop.put_u8(PropertyIdentifiers::ContentType as u8); // property identifier, UTF-8 Encoded String
+        b_prop.put_u8(PropertyIdentifier::ContentType as u8); // property identifier, UTF-8 Encoded String
 
         b_prop.put_u16(b_string.len() as u16);
         b_prop.put(b_string.as_bytes());
 
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop);
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![Property {
-                    element_value: PropertyElement::UTF8EncodedString {
-                        value: String::from("hello world")
+                    element_value: PropertyType::UTF8EncodedString {
+                        value: Utf8EncodedString::new(String::from("hello world"))
                     },
-                    property_identifier: PropertyIdentifiers::ContentType as u8,
+                    property_identifier: PropertyIdentifier::ContentType as u8,
                 }],
                 p
             )
@@ -1798,19 +2019,19 @@ mod test {
         let mut b = BytesMut::with_capacity(100);
         let b_binarydata = vec![1u8, 2u8, 3u8, 4u8, 5u8];
 
-        b_prop.put_u8(PropertyIdentifiers::CorrelationData as u8);
+        b_prop.put_u8(PropertyIdentifier::CorrelationData as u8);
         b_prop.put_u16(b_binarydata.len() as u16);
         b_prop.put(b_binarydata.as_slice());
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop);
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![Property {
-                    element_value: PropertyElement::BinaryData {
-                        value: vec![1u8, 2, 3, 4, 5]
+                    element_value: PropertyType::BinaryData {
+                        value: BinaryData::new(vec![1u8, 2, 3, 4, 5])
                     },
-                    property_identifier: PropertyIdentifiers::CorrelationData as u8,
+                    property_identifier: PropertyIdentifier::CorrelationData as u8,
                 }],
                 p
             )
@@ -1823,18 +2044,20 @@ mod test {
         let mut b = BytesMut::with_capacity(100);
         let b_integer: u32 = 268_435_455;
 
-        b_prop.put_u8(PropertyIdentifiers::SubscriptionIdentifier as u8);
-        variable_byte_integer(b_integer, &mut b_prop);
+        b_prop.put_u8(PropertyIdentifier::SubscriptionIdentifier as u8);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_integer), &mut b_prop);
 
-        variable_byte_integer(b_prop.len() as u32, &mut b); // size of property
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b); // size of property
 
         b.put(b_prop);
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![Property {
-                    element_value: PropertyElement::VariableByteInteger { value: b_integer },
-                    property_identifier: PropertyIdentifiers::SubscriptionIdentifier as u8,
+                    element_value: PropertyType::VariableByteInteger {
+                        value: VariableByteInteger::new(b_integer)
+                    },
+                    property_identifier: PropertyIdentifier::SubscriptionIdentifier as u8,
                 }],
                 p
             )
@@ -1845,18 +2068,18 @@ mod test {
     fn test_property_type_four_byte_integer() {
         let mut b_prop = BytesMut::with_capacity(2);
         let mut b = BytesMut::with_capacity(100);
-        let b_integer: FourByteIntegerT = 269_435_455;
+        let b_integer: FourByteInteger = FourByteInteger::new(269_435_455);
 
-        b_prop.put_u8(PropertyIdentifiers::SessionExpiryInterval as u8);
-        b_prop.put_u32(b_integer);
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        b_prop.put_u8(PropertyIdentifier::SessionExpiryInterval as u8);
+        b_prop.put_u32(*b_integer.as_ref());
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop);
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![Property {
-                    element_value: PropertyElement::FourByteInteger { value: b_integer },
-                    property_identifier: PropertyIdentifiers::SessionExpiryInterval as u8
+                    element_value: PropertyType::FourByteInteger { value: b_integer },
+                    property_identifier: PropertyIdentifier::SessionExpiryInterval as u8
                 }],
                 p
             )
@@ -1868,17 +2091,19 @@ mod test {
         let mut b_prop = BytesMut::with_capacity(2);
         let mut b = BytesMut::with_capacity(100);
 
-        b_prop.put_u8(PropertyIdentifiers::ServerKeepAlive as u8);
+        b_prop.put_u8(PropertyIdentifier::ServerKeepAlive as u8);
         b_prop.put_u16(0x1001);
 
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop);
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![Property {
-                    element_value: PropertyElement::TwoByteInteger { value: 0x1001 },
-                    property_identifier: PropertyIdentifiers::ServerKeepAlive as u8
+                    element_value: PropertyType::TwoByteInteger {
+                        value: TwoByteInteger::new(0x1001)
+                    },
+                    property_identifier: PropertyIdentifier::ServerKeepAlive as u8
                 }],
                 p
             )
@@ -1893,21 +2118,21 @@ mod test {
         let key = b"Hello";
         let value = b"World";
 
-        b_prop.put_u8(PropertyIdentifiers::UserProperty as u8);
+        b_prop.put_u8(PropertyIdentifier::UserProperty as u8);
         encode::utf8_string_pair("Hello", "World", &mut b_prop);
-        variable_byte_integer(b_prop.len() as u32, &mut b);
+        encode_variable_byte_integer(&VariableByteInteger::new(b_prop.len() as u32), &mut b);
         b.put(b_prop);
 
-        if let Ok(p) = decode::property(&mut b) {
+        if let Ok(p) = decode::decode_property(&mut b) {
             assert_eq!(
                 vec![Property {
-                    element_value: PropertyElement::UTF8StringPair {
-                        value: Utf8stringPairT {
-                            key: String::from_utf8(key.to_vec()).unwrap(),
-                            value: String::from_utf8(value.to_vec()).unwrap(),
-                        }
+                    element_value: PropertyType::UTF8StringPair {
+                        value: Utf8StringPair(
+                            String::from_utf8(key.to_vec()).unwrap(),
+                            String::from_utf8(value.to_vec()).unwrap()
+                        )
                     },
-                    property_identifier: PropertyIdentifiers::UserProperty as u8
+                    property_identifier: PropertyIdentifier::UserProperty as u8
                 }],
                 p
             )
@@ -1927,15 +2152,14 @@ mod test {
         //     PropertyIdentifiers::UserProperty,
         // ];
         let properties: Vec<Property> = vec![Property::new(
-            PropertyElement::Byte { value: 0u8 },
-            PropertyIdentifiers::UserProperty as u8,
+            PropertyType::Byte {
+                value: Byte::new(0u8),
+            },
+            PropertyIdentifier::UserProperty as u8,
         )];
 
         let returned_properties: Vec<Property> = vec![];
-        assert_eq!(
-            check_for_non_unique_properties(&properties),
-            returned_properties
-        );
+        assert_eq!(non_unique_properties(&properties), returned_properties);
     }
     #[test]
     fn test_zero_user_properties_are_valid() {
@@ -1953,22 +2177,23 @@ mod test {
         info!("hello from tracing::info");
         let properties = vec![];
         let returned_properties: Vec<Property> = vec![];
-        assert_eq!(
-            check_for_non_unique_properties(&properties),
-            returned_properties
-        );
+        assert_eq!(non_unique_properties(&properties), returned_properties);
     }
 
     #[test]
     fn test_two_assigned_client_id_dentifier_are_invalid() {
         let properties: Vec<Property> = vec![
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::AssignedClientIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::AssignedClientIdentifier as u8,
             ),
             Property::new(
-                PropertyElement::Byte { value: 0u8 },
-                PropertyIdentifiers::AssignedClientIdentifier as u8,
+                PropertyType::Byte {
+                    value: Byte::new(0u8),
+                },
+                PropertyIdentifier::AssignedClientIdentifier as u8,
             ),
         ];
 
@@ -1978,22 +2203,21 @@ mod test {
         //     vec![PropertyIdentifiers::AssignedClientIdentifier];
 
         let returned_properties: Vec<Property> = vec![Property::new(
-            PropertyElement::Byte { value: 0u8 },
-            PropertyIdentifiers::AssignedClientIdentifier as u8,
+            PropertyType::Byte {
+                value: Byte::new(0u8),
+            },
+            PropertyIdentifier::AssignedClientIdentifier as u8,
         )];
-        assert_eq!(
-            check_for_non_unique_properties(&properties),
-            returned_properties
-        );
+        assert_eq!(non_unique_properties(&properties), returned_properties);
     }
 
     #[test]
     fn test_parse_connect_control_packet() {
-        // let mut packet = BytesMut::with_capacity(200);
-        // packet.put_u8(0b0001_0000);
-        // //packet.put variable byte integer
+        // let mut packets = BytesMut::with_capacity(200);
+        // packets.put_u8(0b0001_0000);
+        // //packets.put variable byte integer
 
-        // select control packet type
+        // select control packets type
 
         //
     }

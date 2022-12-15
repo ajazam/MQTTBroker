@@ -2,21 +2,17 @@ use crate::decode::{decode_binary, decode_property, decode_utf8_string, decode_v
 use crate::encode::{encode_utf8_encoded_string, encode_variable_byte_integer};
 use crate::mqttbroker::packets::connect::validation::will_properties_are_valid;
 use crate::mqttbroker::packets::error::PropertyError;
-use crate::mqttbroker::packets::ConnectPacketBuildError::{
-    WillFlagNotSet, WillPayLoadNotSet, WillTopicNotSet,
-};
 use crate::mqttbroker::packets::{
-    connect_flags, encode_properties, BuilderLifecycle, ConnectPacketBuildError, Decoder, Encoder,
-    GeneratePacketParts, PacketTypes,
+    connect_flags, encode_properties, BuilderLifecycle, Decoder, Encoder, GeneratePacketParts,
+    PacketTypes,
 };
 use crate::mqttbroker::primitive_types::VariableByteInteger;
 use crate::mqttbroker::properties::{
-    diff, invalid_property_for_connect_packet_type, non_unique_properties,
+    invalid_property, invalid_property_for_connect_packet_type, non_unique_properties,
     valid_properties_for_will, Property,
 };
 use bytes::{Buf, BufMut, BytesMut};
 use std::io::Error;
-use tokio::io;
 use tracing::debug;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -62,10 +58,6 @@ impl Connect {
     }
 
     pub fn will_flag(&self) -> bool {
-        println!(
-            "will_flag is {:?}",
-            (self.connect_flags & connect_flags::WILL_FLAG) == connect_flags::WILL_FLAG
-        );
         (self.connect_flags & connect_flags::WILL_FLAG) == connect_flags::WILL_FLAG
     }
 
@@ -84,17 +76,18 @@ pub mod validation {
     use crate::mqttbroker::packets::ConnectPacketBuildError::{
         WillFlagNotSet, WillPayLoadNotSet, WillTopicNotSet,
     };
+    // use mockall::predicate::str::is_empty;
 
     pub fn will_properties_are_valid(connect_packet: &Connect) -> anyhow::Result<()> {
-        if is_will_flag_not_set_and_will_properties_set_error(&connect_packet) {
+        if is_will_flag_not_set_and_will_properties_set_error(connect_packet) {
             return Err(WillFlagNotSet.into());
         }
 
-        if is_will_flag_set_and_will_topic_is_empty_error(&connect_packet) {
+        if is_will_flag_set_and_will_topic_is_empty_error(connect_packet) {
             return Err(WillTopicNotSet.into());
         }
 
-        if is_will_flag_set_and_will_payload_is_empty_error(&connect_packet) {
+        if is_will_flag_set_and_will_payload_is_empty_error(connect_packet) {
             return Err(WillPayLoadNotSet.into());
         }
 
@@ -106,9 +99,11 @@ pub mod validation {
             return false;
         }
 
-        !connect_packet.will_flag()
+        let ret_value = !connect_packet.will_flag()
             && connect_packet.will_properties.is_some()
-            && (connect_packet.will_properties.as_ref().unwrap().len() > 0)
+            && connect_packet.will_properties.as_ref().is_some();
+
+        ret_value
     }
 
     fn is_will_flag_set_and_will_topic_is_empty_error(connect_packet: &Connect) -> bool {
@@ -176,20 +171,23 @@ pub mod validation {
         };
         use crate::mqttbroker::packets::connect::Connect;
         use crate::mqttbroker::packets::connect_flags;
+        use crate::mqttbroker::primitive_types::FourByteInteger;
         use crate::mqttbroker::properties::Property;
 
         #[test]
         fn test_is_will_flag_not_set_and_will_properties_set() {
-            // fix this first
             let connect_packet = Connect {
                 will_topic: Some(String::from("hello")),
                 will_payload: Some(vec![1, 2, 3]), //will_properties: Some(vec![Property::new()])..Default::default(),
+                will_properties: Some(vec![Property::WillDelayInterval {
+                    value: FourByteInteger(400),
+                }]),
                 ..Default::default()
             };
 
             println!("connect_packet is {:?}", connect_packet);
 
-            let ret = connect_packet.will_flag();
+            //let ret = connect_packet.will_flag();
 
             let result = is_will_flag_not_set_and_will_properties_set_error(&connect_packet);
 
@@ -355,7 +353,7 @@ impl ConnectBuilder {
 
         // check for invalid
         let mut invalid_will_properties: Vec<Property> = vec![];
-        diff(
+        invalid_property(
             &assigned_will_properties,
             valid_properties_for_will().as_slice(),
             &mut invalid_will_properties,
@@ -406,13 +404,22 @@ impl ConnectBuilder {
         self
     }
 
-    pub fn username(mut self, username: String) -> Self {
-        self.packet.username = Some(username);
+    pub fn username(mut self, username: Option<String>) -> Self {
+        if username.is_some() && !username.as_ref().unwrap().is_empty() {
+            self.packet.username = username;
+
+            self.packet.connect_flags |= connect_flags::USER_NAME_FLAG;
+        }
         self
     }
 
-    pub fn password(mut self, password: String) -> Self {
-        self.packet.password = Some(password);
+    pub fn password(mut self, password: Option<String>) -> Self {
+        if password.is_some() && !password.as_ref().unwrap().is_empty() {
+            self.packet.password = password;
+
+            self.packet.connect_flags |= connect_flags::PASSWORD_FLAG;
+        }
+
         self
     }
 
@@ -453,7 +460,7 @@ impl GeneratePacketParts for Connect {
 
         variable_header.put_u8(self.protocol_version);
 
-        variable_header.put_u8(ConnectBuilder::generate_connect_flags(&self));
+        variable_header.put_u8(ConnectBuilder::generate_connect_flags(self));
 
         variable_header.put_u16(self.keep_alive);
 
@@ -517,7 +524,7 @@ impl GeneratePacketParts for Connect {
         }
 
         //password
-        if !self.password_flag() {
+        if self.password_flag() {
             payload.put(self.password.as_ref().unwrap().as_bytes());
         }
 
@@ -577,7 +584,7 @@ impl BuilderLifecycle<Connect> for ConnectBuilder {
 
 impl Encoder<Error> for Connect {
     fn encode(&self) -> anyhow::Result<BytesMut> {
-        let _ = will_properties_are_valid(&self);
+        let _ = will_properties_are_valid(self);
 
         // start of variable header >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -685,17 +692,17 @@ impl Decoder<Connect, Error> for Connect {
         let is_username_flag = connect_flags & connect_flags::USER_NAME_FLAG > 0;
 
         let username = if is_username_flag {
-            decode_utf8_string(String::from("username"), bytes).unwrap()
+            Some(decode_utf8_string(String::from("username"), bytes).unwrap())
         } else {
-            String::from("")
+            None
         };
 
         let is_password_flag = connect_flags & connect_flags::PASSWORD_FLAG > 0;
 
         let password = if is_password_flag {
-            decode_utf8_string(String::from("password"), bytes).unwrap()
+            Some(decode_utf8_string(String::from("password"), bytes).unwrap())
         } else {
-            String::from("")
+            None
         };
         // Successful return
         Ok(Connect {
@@ -709,8 +716,8 @@ impl Decoder<Connect, Error> for Connect {
             will_properties: Some(will_properties.unwrap_or_default()),
             will_topic: Some(will_topic),
             will_payload: Some(will_payload),
-            username: Some(username),
-            password: Some(password),
+            username,
+            password,
             client_id: client_identifier,
         })
     }

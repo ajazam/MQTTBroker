@@ -15,6 +15,7 @@ use tracing::{debug, event, span, Level};
 use tracing_subscriber::fmt;
 
 extern crate core;
+
 extern crate tracing;
 
 fn main() {

@@ -18,13 +18,14 @@ use bytes::BytesMut;
 use std::error::Error;
 
 mod error {
-    use crate::mqttbroker::properties::Property;
+    use crate::mqttbroker::properties::{Property, PropertyIdentifier};
+    use std::collections::HashMap;
     use thiserror::Error;
 
     #[derive(Error, Debug)]
     pub enum PropertyError {
         #[error("property {0:?} has already been inserted, you are trying to insert a duplicate copy into {1}")]
-        PropertyAlreadyInserted(Vec<Property>, String),
+        PropertyAlreadyInserted(HashMap<PropertyIdentifier, Vec<Property>>, String),
         // #[error("property {0} is not valid for Will Topic of CONNECT Payload")]
         // InvalidConnectPayloadWillProperty(String),
         // #[error("property {0} is not valid for Properties of CONNECT Variable Header")]

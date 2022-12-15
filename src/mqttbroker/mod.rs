@@ -106,18 +106,15 @@ pub mod mqtt_broker {
                     );
                     let original_connect_packet_clone = original_connect_packet.packet.clone();
                     let encoded_packet = original_connect_packet.build();
-                    let encoded_packet = encoded_packet.unwrap();
-                    debug!("encoded packets is {:?}", encoded_packet);
+                    let mut encoded_packet = encoded_packet.unwrap().encode().unwrap();
+                    println!("encoded packets is {:?}", encoded_packet);
                     //decode packets
 
-                    let decoded_connect_packet = encoded_packet.encode().unwrap();
+                    let decoded_connect_packet = Connect::decode(&mut encoded_packet).unwrap();
 
-                    assert_eq!(
-                        original_connect_packet_clone.encode().unwrap(),
-                        decoded_connect_packet
-                    );
-                    debug!("original packets is {:?}", original_connect_packet_clone);
-                    debug!("decoded packets is {:?}", decoded_connect_packet);
+                    assert_eq!(original_connect_packet_clone, decoded_connect_packet);
+                    println!("original packets is {:?}", original_connect_packet_clone);
+                    println!("decoded packets is {:?}", decoded_connect_packet);
                 }
 
                 #[test]

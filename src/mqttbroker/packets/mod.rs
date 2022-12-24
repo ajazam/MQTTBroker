@@ -142,7 +142,7 @@ pub mod properties {
     );
 
     use crate::mqttbroker::packets::properties::private::ModifyProperties;
-    use crate::mqttbroker::properties::PropertyIdentifier;
+    use crate::mqttbroker::properties::{PropertyIdentifier, PropertyIdentifierConstant};
     use paste::paste;
 
     macro_rules! create_user_property_trait {
@@ -151,11 +151,11 @@ pub mod properties {
                 pub trait $propname: ModifyProperties {
 
                     fn [<set_ $propname:snake>](&mut self, value: $property_type) {
-                        self.[<set_ $property_type:snake >](PropertyIdentifier::$propname, value);
+                        self.[<set_ $property_type:snake >](PropertyIdentifier::new(PropertyIdentifierConstant::$propname), value);
                     }
 
                     fn [<$propname:snake>](&mut self) -> Option<&$property_type> {
-                        self.[<$property_type:snake>](PropertyIdentifier::$propname)
+                        self.[<$property_type:snake>](PropertyIdentifier::new(PropertyIdentifierConstant::$propname))
                     }
                 }
             }
@@ -226,15 +226,18 @@ pub mod properties {
 
     trait UserProperty: ModifyProperties {
         fn append_user_property(&mut self, value: Utf8StringPair) {
-            self.append_utf8_string_pair(PropertyIdentifier::UserProperty, value)
+            self.append_utf8_string_pair(
+                PropertyIdentifier::new(PropertyIdentifierConstant::User),
+                value,
+            )
         }
 
         fn clear_user_property(&mut self) {
-            self.clear_utf8_string_pair(PropertyIdentifier::UserProperty);
+            self.clear_utf8_string_pair(PropertyIdentifier::new(PropertyIdentifierConstant::User));
         }
 
         fn user_property(&mut self, key: String) -> Option<&Vec<Utf8StringPair>> {
-            self.utf8_string_pair(PropertyIdentifier::UserProperty)
+            self.utf8_string_pair(PropertyIdentifier::new(PropertyIdentifierConstant::User))
         }
     }
 
@@ -286,7 +289,7 @@ pub mod properties {
             fn get_properties(&mut self) -> &mut HashMap<u8, PropertyContainer>;
             #[doc(hidden)]
             fn four_byte_integer(&mut self, key: PropertyIdentifier) -> Option<&FourByteInteger> {
-                match self.get_properties().get(&(key as u8)) {
+                match self.get_properties().get(&(key.value as u8)) {
                     Some(PropertyContainer::FourByteInteger(x)) => Some(x),
                     _ => None,
                 }
@@ -298,7 +301,7 @@ pub mod properties {
                 value: FourByteInteger,
             ) -> Option<PropertyContainer> {
                 self.get_properties().insert(
-                    key as u8,
+                    key.value as u8,
                     PropertyContainer::FourByteInteger(FourByteInteger::new(*value.as_ref())),
                 )
             }
@@ -307,7 +310,7 @@ pub mod properties {
                 &mut self,
                 key: PropertyIdentifier,
             ) -> Option<&Utf8EncodedString> {
-                match self.get_properties().get(&(key as u8)) {
+                match self.get_properties().get(&(key.value as u8)) {
                     Some(PropertyContainer::UTF8EncodeString(x)) => Some(x),
                     _ => None,
                 }
@@ -319,11 +322,11 @@ pub mod properties {
                 value: Utf8EncodedString,
             ) -> Option<PropertyContainer> {
                 self.get_properties()
-                    .insert(key as u8, PropertyContainer::UTF8EncodeString(value))
+                    .insert(key.value as u8, PropertyContainer::UTF8EncodeString(value))
             }
             #[doc(hidden)]
             fn binary_data(&mut self, key: PropertyIdentifier) -> Option<&BinaryData> {
-                match self.get_properties().get(&(key as u8)) {
+                match self.get_properties().get(&(key.value as u8)) {
                     Some(PropertyContainer::BinaryData(x)) => Some(x),
                     _ => None,
                 }
@@ -335,13 +338,13 @@ pub mod properties {
                 value: BinaryData,
             ) -> Option<PropertyContainer> {
                 self.get_properties().insert(
-                    key as u8,
+                    key.value as u8,
                     PropertyContainer::BinaryData(BinaryData::new(value.0)),
                 )
             }
             #[doc(hidden)]
             fn byte(&mut self, key: PropertyIdentifier) -> Option<&Byte> {
-                match self.get_properties().get(&(key as u8)) {
+                match self.get_properties().get(&(key.value as u8)) {
                     Some(PropertyContainer::Byte(x)) => Some(x),
                     _ => None,
                 }
@@ -353,7 +356,7 @@ pub mod properties {
                 value: Byte,
             ) -> Option<PropertyContainer> {
                 self.get_properties().insert(
-                    key as u8,
+                    key.value as u8,
                     PropertyContainer::Byte(Byte::new(*value.as_ref())),
                 )
             }
@@ -362,7 +365,7 @@ pub mod properties {
                 &mut self,
                 key: PropertyIdentifier,
             ) -> Option<&VariableByteInteger> {
-                match self.get_properties().get(&(key as u8)) {
+                match self.get_properties().get(&(key.value as u8)) {
                     Some(PropertyContainer::VariableByteInteger(x)) => Some(x),
                     _ => None,
                 }
@@ -374,7 +377,7 @@ pub mod properties {
                 value: VariableByteInteger,
             ) -> Option<PropertyContainer> {
                 self.get_properties().insert(
-                    key as u8,
+                    key.value as u8,
                     PropertyContainer::VariableByteInteger(VariableByteInteger::new(
                         *value.as_ref(),
                     )),
@@ -382,7 +385,7 @@ pub mod properties {
             }
             #[doc(hidden)]
             fn two_byte_integer(&mut self, key: PropertyIdentifier) -> Option<&TwoByteInteger> {
-                match self.get_properties().get(&(key as u8)) {
+                match self.get_properties().get(&(key.value as u8)) {
                     Some(PropertyContainer::TwoByteInteger(x)) => Some(x),
                     _ => None,
                 }
@@ -394,7 +397,7 @@ pub mod properties {
                 value: TwoByteInteger,
             ) -> Option<PropertyContainer> {
                 self.get_properties().insert(
-                    key as u8,
+                    key.value as u8,
                     PropertyContainer::TwoByteInteger(TwoByteInteger::new(*value.as_ref())),
                 )
             }
@@ -403,7 +406,7 @@ pub mod properties {
                 &mut self,
                 key: PropertyIdentifier,
             ) -> Option<&Vec<Utf8StringPair>> {
-                match self.get_properties().get(&(key as u8)) {
+                match self.get_properties().get(&(key.value as u8)) {
                     Some(PropertyContainer::UTF8StringPairList(x)) => Some(x),
                     _ => None,
                 }
@@ -411,7 +414,7 @@ pub mod properties {
             #[doc(hidden)]
             fn append_utf8_string_pair(&mut self, key: PropertyIdentifier, value: Utf8StringPair) {
                 if let Some(PropertyContainer::UTF8StringPairList(ref mut lp)) =
-                    self.get_properties().get_mut(&(key as u8))
+                    self.get_properties().get_mut(&(key.value as u8))
                 {
                     lp.push(value)
                 }
@@ -419,7 +422,7 @@ pub mod properties {
             #[doc(hidden)]
             fn clear_utf8_string_pair(&mut self, key: PropertyIdentifier) {
                 if let Some(PropertyContainer::UTF8StringPairList(ref mut lp)) =
-                    self.get_properties().get_mut(&(key as u8))
+                    self.get_properties().get_mut(&(key.value as u8))
                 {
                     lp.clear()
                 }

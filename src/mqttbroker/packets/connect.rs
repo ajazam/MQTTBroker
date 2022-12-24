@@ -179,9 +179,7 @@ pub mod validation {
             let connect_packet = Connect {
                 will_topic: Some(String::from("hello")),
                 will_payload: Some(vec![1, 2, 3]), //will_properties: Some(vec![Property::new()])..Default::default(),
-                will_properties: Some(vec![Property::WillDelayInterval {
-                    value: FourByteInteger(400),
-                }]),
+                will_properties: Some(vec![Property::WillDelayInterval(FourByteInteger(400))]),
                 ..Default::default()
             };
 

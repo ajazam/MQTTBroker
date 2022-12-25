@@ -90,7 +90,7 @@ pub enum Property {
 impl From<Property> for PropertyIdentifier {
     fn from(value: Property) -> Self {
         match value {
-            p @ Property::PayloadFormatIndicator(..) => {
+            Property::PayloadFormatIndicator(..) => {
                 PropertyIdentifier::new(PropertyIdentifierConstant::PayloadFormatIndicator)
             }
 
@@ -609,7 +609,7 @@ fn packet_identifier_present(mqtt_control_packet: PacketTypes, qos: u8) -> bool 
 }
 
 // Returns all instances of Property with
-pub fn non_unique_properties(props: &Vec<Property>) -> HashMap<PropertyIdentifier, Vec<Property>> {
+pub fn non_unique(props: &Vec<Property>) -> HashMap<PropertyIdentifier, Vec<Property>> {
     let mut shared_properties: HashMap<PropertyIdentifier, Vec<Property>> = HashMap::new();
     for p in props {
         if let Some(v) = shared_properties.get_mut(&PropertyIdentifier::new(

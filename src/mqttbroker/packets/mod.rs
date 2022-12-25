@@ -15,8 +15,6 @@ pub mod unsuback;
 pub mod unsubscribe;
 
 use bytes::BytesMut;
-use std::error::Error;
-
 mod error {
     use crate::mqttbroker::properties::{Property, PropertyIdentifier};
     use std::collections::HashMap;
@@ -229,7 +227,7 @@ pub mod properties {
             self.append_utf8_string_pair(
                 PropertyIdentifier::new(PropertyIdentifierConstant::User),
                 value,
-            )
+            );
         }
 
         fn clear_user_property(&mut self) {
@@ -541,12 +539,12 @@ pub fn encode_properties(props: &Option<Vec<Property>>) -> Vec<u8> {
 
 #[cfg(test)]
 mod encode_test {
-    use crate::mqttbroker::packets::connect::ConnectBuilder;
+    use crate::mqttbroker::packets::connect::Builder;
     use crate::mqttbroker::packets::BuilderLifecycle;
 
     #[test]
     pub fn will_properties_not_set() {
-        let packet = ConnectBuilder::new();
+        let packet = Builder::new();
 
         assert!(!packet.packet.will_flag())
     }

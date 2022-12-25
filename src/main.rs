@@ -50,7 +50,7 @@ fn main() {
     let v3 = b1.get_u8();
     //debug!("reader is {:?}", reader);
     event!(Level::INFO, "v3 is {:?}", v3);
-    print!("yello")
+    print!("yello");
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
-use crate::decode::{decode_binary, decode_property, decode_utf8_string, decode_varint};
-use crate::encode::{encode_utf8_encoded_string, encode_variable_byte_integer};
+use crate::decode::{binary, property, utf8_string, varint};
+use crate::encode::{utf8_encoded_string, variable_byte_integer};
 use crate::mqttbroker::packets::connect::validation::will_properties_are_valid;
 use crate::mqttbroker::packets::error::PropertyError;
 use crate::mqttbroker::packets::{
@@ -8,7 +8,7 @@ use crate::mqttbroker::packets::{
 };
 use crate::mqttbroker::primitive_types::VariableByteInteger;
 use crate::mqttbroker::properties::{
-    invalid_property, invalid_property_for_connect_packet_type, non_unique_properties,
+    invalid_property, invalid_property_for_connect_packet_type, non_unique,
     valid_properties_for_will, Property,
 };
 use bytes::{Buf, BufMut, BytesMut};
@@ -65,8 +65,8 @@ impl Connect {
         self.connect_flags & connect_flags::CLEAN_START > 0
     }
 
-    pub fn builder() -> ConnectBuilder {
-        ConnectBuilder::default()
+    pub fn builder() -> Builder {
+        Builder::default()
     }
 }
 
@@ -202,7 +202,7 @@ pub mod validation {
             println!("{:?}", connect_packet);
             assert!(is_will_flag_set_and_will_topic_is_empty_error(
                 &connect_packet
-            ))
+            ));
         }
 
         #[test]
@@ -214,7 +214,7 @@ pub mod validation {
             };
             assert!(is_will_flag_set_and_will_payload_is_empty_error(
                 &connect_packet
-            ))
+            ));
         }
     }
 }
@@ -229,7 +229,7 @@ impl Default for Connect {
             keep_alive: 0,
             variable_header_properties: vec![],
             connect_flags: 0,
-            client_id: "".to_string(),
+            client_id: String::new(),
             will_properties: None,
             will_topic: None,
             will_payload: None,
@@ -240,11 +240,11 @@ impl Default for Connect {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ConnectBuilder {
+pub struct Builder {
     pub packet: Connect,
 }
 
-impl ConnectBuilder {
+impl Builder {
     pub fn set_packet_type(mut self, pt: u8) -> Self {
         // don't need. We know it's for a connect packets
         self.packet.packet_type = pt;
@@ -310,7 +310,7 @@ impl ConnectBuilder {
 
     pub fn set_will_qos(&mut self, qos: u8) {
         let new_qos = if qos > 2 { 2 } else { qos };
-        self.packet.connect_flags &= !connect_flags::WILL_QOS_MASK | new_qos << 3
+        self.packet.connect_flags &= !connect_flags::WILL_QOS_MASK | new_qos << 3;
     }
 
     // pub fn connect_flags_with_clean_start(mut self, b: bool) -> Self {
@@ -366,7 +366,7 @@ impl ConnectBuilder {
         };
 
         // check for duplicates
-        let non_unique_properties = non_unique_properties(&assigned_will_properties);
+        let non_unique_properties = non_unique(&assigned_will_properties);
         if !non_unique_properties.is_empty() {
             return Err(PropertyError::PropertyAlreadyInserted(
                 non_unique_properties,
@@ -441,7 +441,7 @@ impl GeneratePacketParts for Connect {
         let mut fixed_header = BytesMut::with_capacity(5);
         fixed_header.put_u8(((self.packet_type & 0x0f) << 4) + (self.packet_type_flags & 0x0f));
         // need to capture error here.
-        encode_variable_byte_integer(
+        variable_byte_integer(
             &VariableByteInteger::new(fixed_header_remaining_length as u32),
             &mut fixed_header,
         )
@@ -454,23 +454,23 @@ impl GeneratePacketParts for Connect {
         // variable header // Protocol Name, protocol level, connect flags, keep alive and properties
         let mut variable_header = BytesMut::with_capacity(200);
 
-        encode_utf8_encoded_string(self.protocol_name.as_ref(), &mut variable_header);
+        utf8_encoded_string(self.protocol_name.as_ref(), &mut variable_header);
 
         variable_header.put_u8(self.protocol_version);
 
-        variable_header.put_u8(ConnectBuilder::generate_connect_flags(self));
+        variable_header.put_u8(Builder::generate_connect_flags(self));
 
         variable_header.put_u16(self.keep_alive);
 
         // Connect Properties
-        let encoded_variable_header_properties = if !&self.variable_header_properties.is_empty() {
-            encode_properties(&Some(self.variable_header_properties.clone()))
-        } else {
+        let encoded_variable_header_properties = if self.variable_header_properties.is_empty() {
             vec![]
+        } else {
+            encode_properties(&Some(self.variable_header_properties.clone()))
         };
 
         let mut encoded_variable_header_properties_size: BytesMut = BytesMut::with_capacity(4);
-        encode_variable_byte_integer(
+        variable_byte_integer(
             &VariableByteInteger::new(encoded_variable_header_properties.len() as u32),
             &mut encoded_variable_header_properties_size,
         )
@@ -485,13 +485,13 @@ impl GeneratePacketParts for Connect {
         // payload details
         // client identifier, Will properties, will topic, will payload, username, password
         let mut payload = BytesMut::with_capacity(200);
-        encode_utf8_encoded_string(&self.client_id, &mut payload);
+        utf8_encoded_string(&self.client_id, &mut payload);
         // will properties
 
         let encoded_will_properties = encode_properties(&self.will_properties);
 
         let mut encoded_will_properties_size = BytesMut::with_capacity(4);
-        encode_variable_byte_integer(
+        variable_byte_integer(
             &VariableByteInteger::new(encoded_will_properties.len() as u32),
             &mut encoded_will_properties_size,
         )
@@ -531,8 +531,8 @@ impl GeneratePacketParts for Connect {
         payload
     }
 }
-impl BuilderLifecycle<Connect> for ConnectBuilder {
-    fn new() -> ConnectBuilder {
+impl BuilderLifecycle<Connect> for Builder {
+    fn new() -> Builder {
         Default::default()
     }
 
@@ -624,13 +624,13 @@ impl Decoder<Connect, Error> for Connect {
         let packet_type = bytes.get_u8();
         debug!("bytes left after pack_type {}", bytes.len());
 
-        let packet_size = decode_varint(bytes).unwrap();
+        let packet_size = varint(bytes).unwrap();
 
         // decode Variable Header
 
         debug!("bytes left after packet_size {}", bytes.len());
 
-        let protocol_name = decode_utf8_string(String::from("protocol name"), bytes).unwrap();
+        let protocol_name = utf8_string(String::from("protocol name"), bytes).unwrap();
 
         let protocol_version = bytes.get_u8();
 
@@ -638,7 +638,7 @@ impl Decoder<Connect, Error> for Connect {
 
         let keep_alive = bytes.get_u16();
 
-        let variable_header_properties = decode_property(bytes).unwrap();
+        let variable_header_properties = property(bytes).unwrap();
         debug!(
             "bytes left after variable header properties {}",
             bytes.len()
@@ -650,8 +650,7 @@ impl Decoder<Connect, Error> for Connect {
         // user property can be duplicated
         // other properties can't be duplicated
 
-        let client_identifier =
-            decode_utf8_string(String::from("client identifier"), bytes).unwrap();
+        let client_identifier = utf8_string(String::from("client identifier"), bytes).unwrap();
         debug!("bytes left are client identifier {}", bytes.len());
 
         let is_will_flag = (connect_flags & connect_flags::WILL_FLAG) > 0;
@@ -662,7 +661,7 @@ impl Decoder<Connect, Error> for Connect {
 
         let will_properties: Option<Vec<Property>> = if is_will_flag {
             // Will flag is set
-            Some(decode_property(bytes).unwrap())
+            Some(property(bytes).unwrap())
         } else {
             None
         };
@@ -671,7 +670,7 @@ impl Decoder<Connect, Error> for Connect {
 
         let will_topic: String = if is_will_flag {
             debug!("decoding will topic");
-            decode_utf8_string(String::from("will_topic"), bytes).unwrap()
+            utf8_string(String::from("will_topic"), bytes).unwrap()
         } else {
             String::from("")
         };
@@ -679,7 +678,7 @@ impl Decoder<Connect, Error> for Connect {
         debug!("bytes left after will_topic {}", bytes.len());
 
         let will_payload: Vec<u8> = if is_will_flag {
-            decode_binary(String::from("payload"), bytes)
+            binary(String::from("payload"), bytes)
                 .unwrap()
                 .as_ref()
                 .clone()
@@ -690,7 +689,7 @@ impl Decoder<Connect, Error> for Connect {
         let is_username_flag = connect_flags & connect_flags::USER_NAME_FLAG > 0;
 
         let username = if is_username_flag {
-            Some(decode_utf8_string(String::from("username"), bytes).unwrap())
+            Some(utf8_string(String::from("username"), bytes).unwrap())
         } else {
             None
         };
@@ -698,7 +697,7 @@ impl Decoder<Connect, Error> for Connect {
         let is_password_flag = connect_flags & connect_flags::PASSWORD_FLAG > 0;
 
         let password = if is_password_flag {
-            Some(decode_utf8_string(String::from("password"), bytes).unwrap())
+            Some(utf8_string(String::from("password"), bytes).unwrap())
         } else {
             None
         };

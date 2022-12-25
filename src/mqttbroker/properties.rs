@@ -314,31 +314,59 @@ impl From<Property> for u8 {
             Property::MessageExpiryInterval { .. } => {
                 PropertyIdentifierConstant::MessageExpiryInterval as u8
             }
-            Property::ContentType { .. } => 0x03,
-            Property::ResponseTopic { .. } => 0x08,
-            Property::CorrelationData { .. } => 0x09,
-            Property::SubscriptionIdentifier { .. } => 0x0b,
-            Property::SessionExpiryInterval { .. } => 0x11,
-            Property::AssignedClientIdentifier { .. } => 0x12,
-            Property::ServerKeepAlive { .. } => 0x13,
-            Property::AuthenticationMethod { .. } => 0x15,
-            Property::AuthenticationData { .. } => 0x16,
-            Property::RequestProblemInformation { .. } => 0x17,
-            Property::WillDelayInterval { .. } => 0x18,
-            Property::RequestResponseInformation { .. } => 0x19,
-            Property::ResponseInformation { .. } => 0x1a,
-            Property::ServerReference { .. } => 0x1c,
-            Property::ReasonString { .. } => 0x1f,
-            Property::ReceiveMaximum { .. } => 0x21,
-            Property::TopicAliasMaximum { .. } => 0x22,
-            Property::TopicAlias { .. } => 0x23,
-            Property::MaximumQos { .. } => 0x24,
-            Property::RetainAvailable { .. } => 0x25,
-            Property::User { .. } => 0x26,
-            Property::MaximumPacketSize { .. } => 0x27,
-            Property::WildcardSubscriptionAvailable { .. } => 0x28,
-            Property::SubscriptionIdentifierAvailable { .. } => 0x29,
-            Property::SharedSubscriptionAvailable { .. } => 0x2a,
+            Property::ContentType { .. } => PropertyIdentifierConstant::ContentType as u8,
+            Property::ResponseTopic { .. } => PropertyIdentifierConstant::ResponseTopic as u8,
+            Property::CorrelationData { .. } => PropertyIdentifierConstant::CorrelationData as u8,
+            Property::SubscriptionIdentifier { .. } => {
+                PropertyIdentifierConstant::SubscriptionIdentifier as u8
+            }
+            Property::SessionExpiryInterval { .. } => {
+                PropertyIdentifierConstant::SessionExpiryInterval as u8
+            }
+            Property::AssignedClientIdentifier { .. } => {
+                PropertyIdentifierConstant::AssignedClientIdentifier as u8
+            }
+            Property::ServerKeepAlive { .. } => PropertyIdentifierConstant::ServerKeepAlive as u8,
+            Property::AuthenticationMethod { .. } => {
+                PropertyIdentifierConstant::AuthenticationMethod as u8
+            }
+            Property::AuthenticationData { .. } => {
+                PropertyIdentifierConstant::AuthenticationData as u8
+            }
+            Property::RequestProblemInformation { .. } => {
+                PropertyIdentifierConstant::RequestProblemInformation as u8
+            }
+            Property::WillDelayInterval { .. } => {
+                PropertyIdentifierConstant::WillDelayInterval as u8
+            }
+            Property::RequestResponseInformation { .. } => {
+                PropertyIdentifierConstant::RequestResponseInformation as u8
+            }
+            Property::ResponseInformation { .. } => {
+                PropertyIdentifierConstant::ResponseInformation as u8
+            }
+            Property::ServerReference { .. } => PropertyIdentifierConstant::ServerReference as u8,
+            Property::ReasonString { .. } => PropertyIdentifierConstant::ReasonString as u8,
+            Property::ReceiveMaximum { .. } => PropertyIdentifierConstant::ReceiveMaximum as u8,
+            Property::TopicAliasMaximum { .. } => {
+                PropertyIdentifierConstant::TopicAliasMaximum as u8
+            }
+            Property::TopicAlias { .. } => PropertyIdentifierConstant::TopicAlias as u8,
+            Property::MaximumQos { .. } => PropertyIdentifierConstant::MaximumQos as u8,
+            Property::RetainAvailable { .. } => PropertyIdentifierConstant::RetainAvailable as u8,
+            Property::User { .. } => PropertyIdentifierConstant::User as u8,
+            Property::MaximumPacketSize { .. } => {
+                PropertyIdentifierConstant::MaximumPacketSize as u8
+            }
+            Property::WildcardSubscriptionAvailable { .. } => {
+                PropertyIdentifierConstant::WildcardSubscriptionAvailable as u8
+            }
+            Property::SubscriptionIdentifierAvailable { .. } => {
+                PropertyIdentifierConstant::SubscriptionIdentifierAvailable as u8
+            }
+            Property::SharedSubscriptionAvailable { .. } => {
+                PropertyIdentifierConstant::SharedSubscriptionAvailable as u8
+            }
         }
     }
 }
@@ -346,33 +374,65 @@ impl From<Property> for u8 {
 impl From<&Property> for u8 {
     fn from(p: &Property) -> Self {
         match *p {
-            Property::PayloadFormatIndicator { .. } => 0x01,
-            Property::MessageExpiryInterval { .. } => 0x02,
-            Property::ContentType { .. } => 0x03,
-            Property::ResponseTopic { .. } => 0x08,
-            Property::CorrelationData { .. } => 0x09,
-            Property::SubscriptionIdentifier { .. } => 0x0b,
-            Property::SessionExpiryInterval { .. } => 0x11,
-            Property::AssignedClientIdentifier { .. } => 0x12,
-            Property::ServerKeepAlive { .. } => 0x13,
-            Property::AuthenticationMethod { .. } => 0x15,
-            Property::AuthenticationData { .. } => 0x16,
-            Property::RequestProblemInformation { .. } => 0x17,
-            Property::WillDelayInterval { .. } => 0x18,
-            Property::RequestResponseInformation { .. } => 0x19,
-            Property::ResponseInformation { .. } => 0x1a,
-            Property::ServerReference { .. } => 0x1c,
-            Property::ReasonString { .. } => 0x1f,
-            Property::ReceiveMaximum { .. } => 0x21,
-            Property::TopicAliasMaximum { .. } => 0x22,
-            Property::TopicAlias { .. } => 0x23,
-            Property::MaximumQos { .. } => 0x24,
-            Property::RetainAvailable { .. } => 0x25,
-            Property::User { .. } => 0x26,
-            Property::MaximumPacketSize { .. } => 0x27,
-            Property::WildcardSubscriptionAvailable { .. } => 0x28,
-            Property::SubscriptionIdentifierAvailable { .. } => 0x29,
-            Property::SharedSubscriptionAvailable { .. } => 0x2a,
+            Property::PayloadFormatIndicator { .. } => {
+                PropertyIdentifierConstant::PayloadFormatIndicator as u8
+            }
+            Property::MessageExpiryInterval { .. } => {
+                PropertyIdentifierConstant::MessageExpiryInterval as u8
+            }
+            Property::ContentType { .. } => PropertyIdentifierConstant::ContentType as u8,
+            Property::ResponseTopic { .. } => PropertyIdentifierConstant::ResponseTopic as u8,
+            Property::CorrelationData { .. } => PropertyIdentifierConstant::CorrelationData as u8,
+            Property::SubscriptionIdentifier { .. } => {
+                PropertyIdentifierConstant::SubscriptionIdentifier as u8
+            }
+            Property::SessionExpiryInterval { .. } => {
+                PropertyIdentifierConstant::SessionExpiryInterval as u8
+            }
+            Property::AssignedClientIdentifier { .. } => {
+                PropertyIdentifierConstant::AssignedClientIdentifier as u8
+            }
+            Property::ServerKeepAlive { .. } => PropertyIdentifierConstant::ServerKeepAlive as u8,
+            Property::AuthenticationMethod { .. } => {
+                PropertyIdentifierConstant::AuthenticationMethod as u8
+            }
+            Property::AuthenticationData { .. } => {
+                PropertyIdentifierConstant::AuthenticationData as u8
+            }
+            Property::RequestProblemInformation { .. } => {
+                PropertyIdentifierConstant::RequestProblemInformation as u8
+            }
+            Property::WillDelayInterval { .. } => {
+                PropertyIdentifierConstant::WillDelayInterval as u8
+            }
+            Property::RequestResponseInformation { .. } => {
+                PropertyIdentifierConstant::RequestResponseInformation as u8
+            }
+            Property::ResponseInformation { .. } => {
+                PropertyIdentifierConstant::ResponseInformation as u8
+            }
+            Property::ServerReference { .. } => PropertyIdentifierConstant::ServerReference as u8,
+            Property::ReasonString { .. } => PropertyIdentifierConstant::ReasonString as u8,
+            Property::ReceiveMaximum { .. } => PropertyIdentifierConstant::ReceiveMaximum as u8,
+            Property::TopicAliasMaximum { .. } => {
+                PropertyIdentifierConstant::TopicAliasMaximum as u8
+            }
+            Property::TopicAlias { .. } => PropertyIdentifierConstant::TopicAlias as u8,
+            Property::MaximumQos { .. } => PropertyIdentifierConstant::MaximumQos as u8,
+            Property::RetainAvailable { .. } => PropertyIdentifierConstant::RetainAvailable as u8,
+            Property::User { .. } => PropertyIdentifierConstant::User as u8,
+            Property::MaximumPacketSize { .. } => {
+                PropertyIdentifierConstant::MaximumPacketSize as u8
+            }
+            Property::WildcardSubscriptionAvailable { .. } => {
+                PropertyIdentifierConstant::WildcardSubscriptionAvailable as u8
+            }
+            Property::SubscriptionIdentifierAvailable { .. } => {
+                PropertyIdentifierConstant::SubscriptionIdentifierAvailable as u8
+            }
+            Property::SharedSubscriptionAvailable { .. } => {
+                PropertyIdentifierConstant::SharedSubscriptionAvailable as u8
+            }
         }
     }
 }

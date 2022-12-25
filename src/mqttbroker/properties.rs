@@ -5,8 +5,9 @@ use crate::mqttbroker::primitive_types::{
 };
 use bytes::BufMut;
 use std::collections::HashMap;
+use std::ops::Deref;
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Hash)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Hash, Copy, Clone)]
 #[repr(u8)]
 pub enum PropertyIdentifierConstant {
     PayloadFormatIndicator = 0x01,
@@ -45,6 +46,11 @@ pub struct PropertyIdentifier {
 impl PropertyIdentifier {
     pub fn new(value: PropertyIdentifierConstant) -> PropertyIdentifier {
         PropertyIdentifier { value }
+    }
+
+    pub fn to_u8(&self) -> u8 {
+        let v = &self.value.clone();
+        *v as u8
     }
 }
 
@@ -87,8 +93,8 @@ pub enum Property {
     SharedSubscriptionAvailable(Byte) = 0x2a,
 }
 
-impl From<Property> for PropertyIdentifier {
-    fn from(value: Property) -> Self {
+impl From<&Property> for PropertyIdentifier {
+    fn from(value: &Property) -> Self {
         match value {
             Property::PayloadFormatIndicator(..) => {
                 PropertyIdentifier::new(PropertyIdentifierConstant::PayloadFormatIndicator)
@@ -252,13 +258,12 @@ impl Property {
     }
 
     fn encode_byte(property: &Property, value: &Byte, encoded: &mut Vec<u8>) {
-        let t = u8::from(property);
-        encoded.put_u8(u8::from(property));
+        encoded.put_u8(PropertyIdentifier::from(property).to_u8());
         encoded.put_u8(value.0);
     }
 
     fn encode_two_byte_integer(property: &Property, value: &TwoByteInteger, encoded: &mut Vec<u8>) {
-        encoded.put_u8(u8::from(property));
+        encoded.put_u8(PropertyIdentifier::from(property).to_u8());
         encoded.put_u16(value.0);
     }
 
@@ -267,7 +272,7 @@ impl Property {
         value: &FourByteInteger,
         encoded: &mut Vec<u8>,
     ) {
-        encoded.put_u8(u8::from(property));
+        encoded.put_u8(PropertyIdentifier::from(property).to_u8());
         encoded.put_u32(value.0);
     }
 
@@ -276,7 +281,7 @@ impl Property {
         value: &VariableByteInteger,
         encoded: &mut Vec<u8>,
     ) {
-        encoded.put_u8(u8::from(property));
+        encoded.put_u8(PropertyIdentifier::from(property).to_u8());
         encoded.put_u32(value.0);
     }
 
@@ -285,13 +290,13 @@ impl Property {
         value: &Utf8EncodedString,
         encoded: &mut Vec<u8>,
     ) {
-        encoded.put_u8(u8::from(property));
+        encoded.put_u8(PropertyIdentifier::from(property).to_u8());
         encoded.put_u16(value.0.len() as u16);
         encoded.put_slice(value.0.as_bytes());
     }
 
     fn encode_utf8_string_pair(property: &Property, value: &Utf8StringPair, encoded: &mut Vec<u8>) {
-        encoded.put_u8(u8::from(property));
+        encoded.put_u8(PropertyIdentifier::from(property).to_u8());
         encoded.put_u16(value.0.len() as u16);
         encoded.put_slice(value.0.as_bytes());
         encoded.put_u16(value.1.len() as u16);
@@ -299,141 +304,9 @@ impl Property {
     }
 
     fn encode_binary_data(property: &Property, value: &BinaryData, encoded: &mut Vec<u8>) {
-        encoded.put_u8(u8::from(property));
+        encoded.put_u8(PropertyIdentifier::from(property).to_u8());
         encoded.put_u16(value.0.len() as u16);
         encoded.put_slice(value.0.as_slice());
-    }
-}
-
-impl From<Property> for u8 {
-    fn from(p: Property) -> Self {
-        match p {
-            Property::PayloadFormatIndicator { .. } => {
-                PropertyIdentifierConstant::PayloadFormatIndicator as u8
-            }
-            Property::MessageExpiryInterval { .. } => {
-                PropertyIdentifierConstant::MessageExpiryInterval as u8
-            }
-            Property::ContentType { .. } => PropertyIdentifierConstant::ContentType as u8,
-            Property::ResponseTopic { .. } => PropertyIdentifierConstant::ResponseTopic as u8,
-            Property::CorrelationData { .. } => PropertyIdentifierConstant::CorrelationData as u8,
-            Property::SubscriptionIdentifier { .. } => {
-                PropertyIdentifierConstant::SubscriptionIdentifier as u8
-            }
-            Property::SessionExpiryInterval { .. } => {
-                PropertyIdentifierConstant::SessionExpiryInterval as u8
-            }
-            Property::AssignedClientIdentifier { .. } => {
-                PropertyIdentifierConstant::AssignedClientIdentifier as u8
-            }
-            Property::ServerKeepAlive { .. } => PropertyIdentifierConstant::ServerKeepAlive as u8,
-            Property::AuthenticationMethod { .. } => {
-                PropertyIdentifierConstant::AuthenticationMethod as u8
-            }
-            Property::AuthenticationData { .. } => {
-                PropertyIdentifierConstant::AuthenticationData as u8
-            }
-            Property::RequestProblemInformation { .. } => {
-                PropertyIdentifierConstant::RequestProblemInformation as u8
-            }
-            Property::WillDelayInterval { .. } => {
-                PropertyIdentifierConstant::WillDelayInterval as u8
-            }
-            Property::RequestResponseInformation { .. } => {
-                PropertyIdentifierConstant::RequestResponseInformation as u8
-            }
-            Property::ResponseInformation { .. } => {
-                PropertyIdentifierConstant::ResponseInformation as u8
-            }
-            Property::ServerReference { .. } => PropertyIdentifierConstant::ServerReference as u8,
-            Property::ReasonString { .. } => PropertyIdentifierConstant::ReasonString as u8,
-            Property::ReceiveMaximum { .. } => PropertyIdentifierConstant::ReceiveMaximum as u8,
-            Property::TopicAliasMaximum { .. } => {
-                PropertyIdentifierConstant::TopicAliasMaximum as u8
-            }
-            Property::TopicAlias { .. } => PropertyIdentifierConstant::TopicAlias as u8,
-            Property::MaximumQos { .. } => PropertyIdentifierConstant::MaximumQos as u8,
-            Property::RetainAvailable { .. } => PropertyIdentifierConstant::RetainAvailable as u8,
-            Property::User { .. } => PropertyIdentifierConstant::User as u8,
-            Property::MaximumPacketSize { .. } => {
-                PropertyIdentifierConstant::MaximumPacketSize as u8
-            }
-            Property::WildcardSubscriptionAvailable { .. } => {
-                PropertyIdentifierConstant::WildcardSubscriptionAvailable as u8
-            }
-            Property::SubscriptionIdentifierAvailable { .. } => {
-                PropertyIdentifierConstant::SubscriptionIdentifierAvailable as u8
-            }
-            Property::SharedSubscriptionAvailable { .. } => {
-                PropertyIdentifierConstant::SharedSubscriptionAvailable as u8
-            }
-        }
-    }
-}
-
-impl From<&Property> for u8 {
-    fn from(p: &Property) -> Self {
-        match *p {
-            Property::PayloadFormatIndicator { .. } => {
-                PropertyIdentifierConstant::PayloadFormatIndicator as u8
-            }
-            Property::MessageExpiryInterval { .. } => {
-                PropertyIdentifierConstant::MessageExpiryInterval as u8
-            }
-            Property::ContentType { .. } => PropertyIdentifierConstant::ContentType as u8,
-            Property::ResponseTopic { .. } => PropertyIdentifierConstant::ResponseTopic as u8,
-            Property::CorrelationData { .. } => PropertyIdentifierConstant::CorrelationData as u8,
-            Property::SubscriptionIdentifier { .. } => {
-                PropertyIdentifierConstant::SubscriptionIdentifier as u8
-            }
-            Property::SessionExpiryInterval { .. } => {
-                PropertyIdentifierConstant::SessionExpiryInterval as u8
-            }
-            Property::AssignedClientIdentifier { .. } => {
-                PropertyIdentifierConstant::AssignedClientIdentifier as u8
-            }
-            Property::ServerKeepAlive { .. } => PropertyIdentifierConstant::ServerKeepAlive as u8,
-            Property::AuthenticationMethod { .. } => {
-                PropertyIdentifierConstant::AuthenticationMethod as u8
-            }
-            Property::AuthenticationData { .. } => {
-                PropertyIdentifierConstant::AuthenticationData as u8
-            }
-            Property::RequestProblemInformation { .. } => {
-                PropertyIdentifierConstant::RequestProblemInformation as u8
-            }
-            Property::WillDelayInterval { .. } => {
-                PropertyIdentifierConstant::WillDelayInterval as u8
-            }
-            Property::RequestResponseInformation { .. } => {
-                PropertyIdentifierConstant::RequestResponseInformation as u8
-            }
-            Property::ResponseInformation { .. } => {
-                PropertyIdentifierConstant::ResponseInformation as u8
-            }
-            Property::ServerReference { .. } => PropertyIdentifierConstant::ServerReference as u8,
-            Property::ReasonString { .. } => PropertyIdentifierConstant::ReasonString as u8,
-            Property::ReceiveMaximum { .. } => PropertyIdentifierConstant::ReceiveMaximum as u8,
-            Property::TopicAliasMaximum { .. } => {
-                PropertyIdentifierConstant::TopicAliasMaximum as u8
-            }
-            Property::TopicAlias { .. } => PropertyIdentifierConstant::TopicAlias as u8,
-            Property::MaximumQos { .. } => PropertyIdentifierConstant::MaximumQos as u8,
-            Property::RetainAvailable { .. } => PropertyIdentifierConstant::RetainAvailable as u8,
-            Property::User { .. } => PropertyIdentifierConstant::User as u8,
-            Property::MaximumPacketSize { .. } => {
-                PropertyIdentifierConstant::MaximumPacketSize as u8
-            }
-            Property::WildcardSubscriptionAvailable { .. } => {
-                PropertyIdentifierConstant::WildcardSubscriptionAvailable as u8
-            }
-            Property::SubscriptionIdentifierAvailable { .. } => {
-                PropertyIdentifierConstant::SubscriptionIdentifierAvailable as u8
-            }
-            Property::SharedSubscriptionAvailable { .. } => {
-                PropertyIdentifierConstant::SharedSubscriptionAvailable as u8
-            }
-        }
     }
 }
 
@@ -468,7 +341,7 @@ fn invalid_property_for_packet_type(
 
     let mut invalid: Vec<Property> = Vec::with_capacity(13);
 
-    println!("valid properties are {:?}", valid_property_identifiers);
+    println!("valid properties are {valid_property_identifiers:?}");
 
     invalid_property(properties, &valid_property_identifiers, &mut invalid);
 
@@ -502,15 +375,15 @@ pub fn invalid_property(
     valid_property_identifier: &[PropertyIdentifier],
     differences: &mut Vec<Property>,
 ) {
-    println!("properties are {:?}", property);
+    println!("properties are {property:?}");
     println!(
         "valid_property_identifiers are {:?}",
         valid_property_identifier
     );
     for p in property {
-        if !valid_property_identifier.contains(&PropertyIdentifier::new(
-            PropertyIdentifier::from(p.clone()).value,
-        )) {
+        if !valid_property_identifier
+            .contains(&PropertyIdentifier::new(PropertyIdentifier::from(p).value))
+        {
             differences.push(p.clone());
         }
     }
@@ -672,13 +545,13 @@ fn packet_identifier_present(mqtt_control_packet: PacketTypes, qos: u8) -> bool 
 pub fn non_unique(props: &Vec<Property>) -> HashMap<PropertyIdentifier, Vec<Property>> {
     let mut shared_properties: HashMap<PropertyIdentifier, Vec<Property>> = HashMap::new();
     for p in props {
-        if let Some(v) = shared_properties.get_mut(&PropertyIdentifier::new(
-            PropertyIdentifier::from(p.clone()).value,
-        )) {
+        if let Some(v) =
+            shared_properties.get_mut(&PropertyIdentifier::new(PropertyIdentifier::from(p).value))
+        {
             v.push(p.clone());
         } else {
             shared_properties.insert(
-                PropertyIdentifier::new(PropertyIdentifier::from(p.clone()).value),
+                PropertyIdentifier::new(PropertyIdentifier::from(p).value),
                 vec![p.clone()],
             );
         }
@@ -690,29 +563,6 @@ pub fn non_unique(props: &Vec<Property>) -> HashMap<PropertyIdentifier, Vec<Prop
 }
 
 ///
-/// Returns whether the property has been successfully added. If not then it already exists,
-/// and the property is a duplicate. Ignores the User Property
-///  # Arguments
-///
-/// * `props` - List of properties
-/// * `to_add` - Property to add
-///
-pub fn add_property_old(props: &mut Vec<Property>, to_add: Property) -> bool {
-    // if props.iter().any(|p| {
-    //     u8::from(*p) == u8::from(to_add)
-    //         && p.as_ref() as u8 != PropertyIdentifier::UserProperty as u8
-    // }) {
-    //     return false;
-    // }
-    if !props.contains(&to_add) {
-        // add to list if not property not already exists or is userproperty property
-        props.push(to_add);
-    }
-
-    true
-}
-
-///
 /// Returns true when the property has been successfully added. If not then it already exists and returns false
 /// Ignores the User Property
 ///  # Arguments
@@ -721,7 +571,7 @@ pub fn add_property_old(props: &mut Vec<Property>, to_add: Property) -> bool {
 /// * `to_add` - Property to add
 ///
 pub fn add_property(props: &mut Vec<Property>, to_add: Property) -> bool {
-    if PropertyIdentifier::from(to_add.clone())
+    if PropertyIdentifier::from(&to_add)
         == (PropertyIdentifier::new(PropertyIdentifierConstant::User))
     {
         props.push(to_add);
@@ -729,7 +579,8 @@ pub fn add_property(props: &mut Vec<Property>, to_add: Property) -> bool {
     }
 
     for p in props {
-        if u8::from(p.clone()) == u8::from(&to_add) {
+        if PropertyIdentifier::from(p.deref()).to_u8() == PropertyIdentifier::from(&to_add).to_u8()
+        {
             return false;
         }
     }
@@ -755,7 +606,7 @@ mod test {
 
         let prop_to_add = Property::SubscriptionIdentifier(VariableByteInteger(0x01));
 
-        assert!(!add_property(&mut properties, prop_to_add))
+        assert!(!add_property(&mut properties, prop_to_add));
     }
 
     #[test]
@@ -763,7 +614,7 @@ mod test {
         let mut properties = vec![Property::SubscriptionIdentifier(VariableByteInteger(0x01))];
 
         let prop_to_add = Property::User(Utf8StringPair("key".to_string(), "value".to_string()));
-        assert!(add_property(&mut properties, prop_to_add))
+        assert!(add_property(&mut properties, prop_to_add));
     }
 
     #[test]
@@ -772,12 +623,7 @@ mod test {
             Property::User(Utf8StringPair("key".to_string(), "value".to_string())),
             Property::User(Utf8StringPair("key".to_string(), "value".to_string())),
         ];
-        // let prop_to_add = Property {
-        //     element_value: PropertyType::Byte {
-        //         value: Byte::new(0x01),
-        //     },
-        //     property_identifier: PropertyIdentifier::UserProperty as u8,
-        // };
+
         let prop_to_add = Property::User(Utf8StringPair("key2".to_string(), "value2".to_string()));
 
         assert!(add_property(&mut properties, prop_to_add));
@@ -797,7 +643,7 @@ mod test {
         let expected = vec![Property::AuthenticationData(BinaryData(vec![1, 2, 3, 4]))];
         let mut result: Vec<Property> = vec![];
         invalid_property(&property, &valid_property_identifier, &mut result);
-        assert_eq!(expected, result)
+        assert_eq!(expected, result);
     }
 
     #[test]
@@ -817,7 +663,7 @@ mod test {
         let expected = vec![Property::AuthenticationData(BinaryData(vec![1, 2, 3, 4]))];
         let mut result: Vec<Property> = vec![];
         invalid_property(&props, &valid_prop_ids, &mut result);
-        assert_eq!(expected, result)
+        assert_eq!(expected, result);
     }
 
     // #[test]

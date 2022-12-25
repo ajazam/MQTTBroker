@@ -56,21 +56,21 @@ pub mod mqtt_broker {
                     let original_connect_packet_clone = original_connect_packet.packet.clone();
                     let encoded_packet = original_connect_packet.build();
                     let mut encoded_packet = encoded_packet.unwrap().encode().unwrap();
-                    println!("encoded packets is {:?}", encoded_packet);
+                    println!("encoded packets is {encoded_packet:?}");
                     //decode packets
 
                     let decoded_connect_packet = Connect::decode(&mut encoded_packet).unwrap();
 
                     assert_eq!(original_connect_packet_clone, decoded_connect_packet);
-                    println!("original packets is {:?}", original_connect_packet_clone);
-                    println!("decoded packets is {:?}", decoded_connect_packet);
+                    println!("original packets is {original_connect_packet_clone:?}");
+                    println!("decoded packets is {decoded_connect_packet:?}");
                 }
 
                 #[test]
                 fn connect_properties_are_valid() {
                     // don't have a test for checking the properties for a connect packets. This test
                     // needs to be written properly to reflect that functionality check
-                    assert!(true)
+                    assert!(true);
                 }
             }
         }

@@ -376,10 +376,7 @@ pub fn invalid_property(
     differences: &mut Vec<Property>,
 ) {
     println!("properties are {property:?}");
-    println!(
-        "valid_property_identifiers are {:?}",
-        valid_property_identifier
-    );
+    println!("valid_property_identifiers are {valid_property_identifier:?}");
     for p in property {
         if !valid_property_identifier
             .contains(&PropertyIdentifier::new(PropertyIdentifier::from(p).value))

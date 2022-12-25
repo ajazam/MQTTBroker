@@ -3,7 +3,7 @@ use bytes::{BufMut, BytesMut};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq)]
-pub enum Error {
+pub enum EncodeError {
     #[error("Number is too large, greater than 268,435,455, to convert to a variable integer")]
     NumberTooLarge,
 }
@@ -21,9 +21,9 @@ pub fn utf8_encoded_string(s: &str, b: &mut BytesMut) {
     b.put_slice(s.as_bytes());
 }
 
-pub fn variable_byte_integer(i: &VariableByteInteger, b: &mut BytesMut) -> Result<(), Error> {
+pub fn variable_byte_integer(i: &VariableByteInteger, b: &mut BytesMut) -> Result<(), EncodeError> {
     if i.as_ref() > &268_435_455 {
-        return Err(Error::NumberTooLarge);
+        return Err(EncodeError::NumberTooLarge);
     }
     let mut encoded_byte: u8;
     let mut to_encode = *i.as_ref();
@@ -55,8 +55,7 @@ pub fn utf8_string_pair(key: &str, value: &str, buf: &mut BytesMut) {
 #[cfg(test)]
 mod test {
     use crate::encode;
-    use crate::encode::Error;
-
+    use crate::encode::EncodeError;
     use crate::mqttbroker::primitive_types::VariableByteInteger;
     use bytes::{Buf, BytesMut};
 
@@ -94,7 +93,7 @@ mod test {
     fn test_encode_number_too_large() {
         let mut b = BytesMut::with_capacity(4);
         let result = encode::variable_byte_integer(&VariableByteInteger::new(300_000_000), &mut b);
-        assert_eq!(Error::NumberTooLarge, result.err().unwrap());
+        assert_eq!(EncodeError::NumberTooLarge, result.err().unwrap());
     }
 
     #[test]

@@ -72,11 +72,9 @@ impl Connect {
 
 pub mod validation {
     use crate::mqttbroker::packets::connect::Connect;
-    use crate::mqttbroker::packets::connect_flags;
     use crate::mqttbroker::packets::ConnectPacketBuildError::{
         WillFlagNotSet, WillPayLoadNotSet, WillTopicNotSet,
     };
-    // use mockall::predicate::str::is_empty;
 
     pub fn will_properties_are_valid(connect_packet: &Connect) -> anyhow::Result<()> {
         if is_will_flag_not_set_and_will_properties_set_error(connect_packet) {

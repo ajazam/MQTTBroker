@@ -1,4 +1,4 @@
-use crate::decode::Error::UTF8Errors;
+use crate::decode::DecodeError::UTF8Errors;
 use crate::mqttbroker::packets::PacketTypes;
 use bytes::{Buf, BytesMut};
 use std::collections::HashMap;
@@ -259,7 +259,7 @@ use crate::mqttbroker::properties::PropertyIdentifier;
 use crate::mqttbroker::properties::{Property, PropertyIdentifierConstant};
 
 #[derive(Error, Debug, PartialEq, Eq)]
-pub enum Error {
+pub enum DecodeError {
     #[error("Not enough bytes decoding {0}")]
     NotEnoughBytes(String),
     #[error("The variable int does not have the MSB clear on the fourth byte.")]
@@ -272,31 +272,37 @@ pub enum Error {
     UnknownProperty(u8),
 }
 
-pub fn two_byte_integer(name: String, b: &mut BytesMut) -> anyhow::Result<TwoByteInteger, Error> {
+pub fn two_byte_integer(
+    name: String,
+    b: &mut BytesMut,
+) -> anyhow::Result<TwoByteInteger, DecodeError> {
     if b.len() < 2 {
-        Err(Error::MoreBytesRequired(2, b.len() as u16, name))
+        Err(DecodeError::MoreBytesRequired(2, b.len() as u16, name))
     } else {
         Ok(TwoByteInteger::new(b.get_u16()))
     }
 }
 
-pub fn four_byte_integer(name: String, b: &mut BytesMut) -> anyhow::Result<FourByteInteger, Error> {
+pub fn four_byte_integer(
+    name: String,
+    b: &mut BytesMut,
+) -> anyhow::Result<FourByteInteger, DecodeError> {
     if b.len() < 4 {
-        Err(Error::MoreBytesRequired(4, b.len() as u16, name))
+        Err(DecodeError::MoreBytesRequired(4, b.len() as u16, name))
     } else {
         Ok(FourByteInteger::new(b.get_u32()))
     }
 }
 
-pub fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, Error> {
+pub fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, DecodeError> {
     if b.len() < 2 {
-        Err(Error::NotEnoughBytes(name))
+        Err(DecodeError::NotEnoughBytes(name))
     } else {
         let mut i = b.iter();
         let string_length = *(i.next().unwrap()) as u16 * 256 + *(i.next().unwrap()) as u16;
         debug!("String {} length is {} ****", name, string_length);
         if (b.len() as u16) < (string_length + 2) {
-            Err(Error::MoreBytesRequired(
+            Err(DecodeError::MoreBytesRequired(
                 string_length,
                 b.len() as u16 - 2,
                 name,
@@ -312,14 +318,14 @@ pub fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, Err
     }
 }
 
-pub fn binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryData, Error> {
+pub fn binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryData, DecodeError> {
     if b.len() < 2 {
-        Err(Error::NotEnoughBytes(name))
+        Err(DecodeError::NotEnoughBytes(name))
     } else {
         let mut i = b.iter();
-        let string_length: u16 = (*(i.next().unwrap()) as u16 * 256 + *(i.next().unwrap()) as u16);
+        let string_length: u16 = *(i.next().unwrap()) as u16 * 256 + *(i.next().unwrap()) as u16;
         if (b.len() as u16) < (string_length + 2) {
-            Err(Error::MoreBytesRequired(
+            Err(DecodeError::MoreBytesRequired(
                 string_length,
                 b.len() as u16 - 2,
                 name,
@@ -336,7 +342,7 @@ pub fn binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryData, Erro
 fn decode_utf8_string_pair(
     name: String,
     b: &mut BytesMut,
-) -> anyhow::Result<Utf8StringPair, Error> {
+) -> anyhow::Result<Utf8StringPair, DecodeError> {
     let mut key: String = String::from("empty");
     let mut value: String = String::from("empty");
     let name_of_key = format!("key of {name}");
@@ -345,24 +351,30 @@ fn decode_utf8_string_pair(
         Ok(k) => {
             key = k;
         }
-        Err(Error::NotEnoughBytes(name_of_key)) => return Err(Error::NotEnoughBytes(name_of_key)),
-        Err(Error::MoreBytesRequired(required, found, name_of_key)) => {
-            return Err(Error::MoreBytesRequired(required, found, name_of_key))
+        Err(DecodeError::NotEnoughBytes(name_of_key)) => {
+            return Err(DecodeError::NotEnoughBytes(name_of_key))
         }
-        Err(Error::UTF8Errors(name)) => return Err(Error::UTF8Errors(name)),
+        Err(DecodeError::MoreBytesRequired(required, found, name_of_key)) => {
+            return Err(DecodeError::MoreBytesRequired(required, found, name_of_key))
+        }
+        Err(DecodeError::UTF8Errors(name)) => return Err(DecodeError::UTF8Errors(name)),
         _ => {}
     }
     match utf8_string(name_of_value, b) {
         Ok(v) => {
             value = v;
         }
-        Err(Error::NotEnoughBytes(name_of_value)) => {
-            return Err(Error::NotEnoughBytes(name_of_value))
+        Err(DecodeError::NotEnoughBytes(name_of_value)) => {
+            return Err(DecodeError::NotEnoughBytes(name_of_value))
         }
-        Err(Error::MoreBytesRequired(required, found, name_of_value)) => {
-            return Err(Error::MoreBytesRequired(required, found, name_of_value))
+        Err(DecodeError::MoreBytesRequired(required, found, name_of_value)) => {
+            return Err(DecodeError::MoreBytesRequired(
+                required,
+                found,
+                name_of_value,
+            ))
         }
-        Err(Error::UTF8Errors(name)) => return Err(Error::UTF8Errors(name)),
+        Err(DecodeError::UTF8Errors(name)) => return Err(DecodeError::UTF8Errors(name)),
         _ => {}
     }
 
@@ -370,7 +382,7 @@ fn decode_utf8_string_pair(
     Ok(Utf8StringPair(key, value))
 }
 
-pub fn varint(b: &mut BytesMut) -> anyhow::Result<VariableByteInteger, Error> {
+pub fn varint(b: &mut BytesMut) -> anyhow::Result<VariableByteInteger, DecodeError> {
     let mut pos: usize = 0;
     let mut multiplier = 1u32;
     let mut value = 0u32;
@@ -387,7 +399,7 @@ pub fn varint(b: &mut BytesMut) -> anyhow::Result<VariableByteInteger, Error> {
         }
 
         if pos == 3 {
-            return Err(Error::NotValidVarInt);
+            return Err(DecodeError::NotValidVarInt);
         }
         pos += 1;
     }
@@ -395,149 +407,7 @@ pub fn varint(b: &mut BytesMut) -> anyhow::Result<VariableByteInteger, Error> {
     Ok(VariableByteInteger::new(value))
 }
 
-// pub fn decode_property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> {
-//     debug!("pre varint length is {}", b.len());
-//     let length = decode_varint(b)?;
-//     debug!("post varint length is {}", b.len());
-//     let mut sub_b = b.split_to(*length.as_ref() as usize);
-//     debug!("post sub_b is {}", sub_b.len());
-//
-//     let mut p_vec: Vec<Property> = vec![];
-//     debug!("property length {}", length.as_ref());
-//
-//     while !sub_b.is_empty() {
-//         let property_identifier = sub_b.get_u8();
-//         let p = match property_identifier {
-//             prop if [
-//                 Property::PayloadFormatIndicator as u8,
-//                 Property::RequestProblemInformation as u8,
-//                 Property::RequestResponseInformation as u8,
-//                 Property::MaximumQos as u8,
-//                 Property::RetainAvailable as u8,
-//                 Property::WildcardSubscriptionAvailable as u8,
-//                 Property::SharedSubscriptionAvailable as u8,
-//             ]
-//             .contains(&prop) =>
-//             {
-//                 Property {
-//                     element_value: PropertyType::Byte {
-//                         value: Byte::new(sub_b.get_u8()),
-//                     },
-//                     property_identifier,
-//                 }
-//             }
-//             prop if [
-//                 Property::MessageExpiryInterval as u8,
-//                 Property::SessionExpiryInterval as u8,
-//                 Property::WillDelayInterval as u8,
-//                 Property::MaximumPacketSize as u8,
-//             ]
-//             .contains(&prop) =>
-//             {
-//                 let four_byte_integer = decode_four_byte_integer(
-//                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-//                     &mut sub_b,
-//                 )?;
-//                 Property {
-//                     element_value: PropertyType::FourByteInteger {
-//                         value: four_byte_integer,
-//                     },
-//                     property_identifier,
-//                 }
-//             }
-//             prop if [
-//                 Property::ContentType as u8,
-//                 Property::ResponseTopic as u8,
-//                 Property::AssignedClientIdentifier as u8,
-//                 Property::AuthenticationMethod as u8,
-//                 Property::ResponseInformation as u8,
-//                 Property::ServerReference as u8,
-//                 Property::ReasonString as u8,
-//             ]
-//             .contains(&prop) =>
-//             {
-//                 let str = decode_utf8_string(
-//                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-//                     &mut sub_b,
-//                 )?;
-//
-//                 Property {
-//                     element_value: PropertyType::UTF8EncodedString {
-//                         value: Utf8EncodedString::new(str),
-//                     },
-//                     property_identifier,
-//                 }
-//             }
-//             prop if [
-//                 Property::CorrelationData as u8,
-//                 Property::AuthenticationData as u8,
-//             ]
-//             .contains(&prop) =>
-//             {
-//                 let binary_data = decode_binary(
-//                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-//                     &mut sub_b,
-//                 )?;
-//
-//                 Property {
-//                     element_value: PropertyType::BinaryData { value: binary_data },
-//                     property_identifier,
-//                 }
-//             }
-//             prop if [
-//                 Property::ServerKeepAlive as u8,
-//                 Property::ReceiveMaximum as u8,
-//                 Property::TopicAliasMaximum as u8,
-//                 TopicAlias as u8,
-//             ]
-//             .contains(&prop) =>
-//             {
-//                 let two_byte_integer = decode_two_byte_integer(
-//                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-//                     &mut sub_b,
-//                 )?;
-//
-//                 Property {
-//                     element_value: PropertyType::TwoByteInteger {
-//                         value: two_byte_integer,
-//                     },
-//                     property_identifier,
-//                 }
-//             }
-//             prop if [Property::UserProperty as u8].contains(&prop) => {
-//                 let utf8_string_pair = decode_utf8_string_pair(
-//                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-//                     &mut sub_b,
-//                 )?;
-//                 Property {
-//                     element_value: PropertyType::UTF8StringPair {
-//                         value: utf8_string_pair,
-//                     },
-//                     property_identifier,
-//                 }
-//             }
-//             prop if [Property::SubscriptionIdentifier as u8].contains(&prop) => {
-//                 debug!("pre variable_byte_integer sub_p len is {}", sub_b.len());
-//                 let variable_byte_integer = decode_varint(&mut sub_b)?;
-//                 debug!("post variable_byte_integer sub_p len is {}", sub_b.len());
-//                 Property {
-//                     element_value: PropertyType::VariableByteInteger {
-//                         value: variable_byte_integer,
-//                     },
-//                     property_identifier,
-//                 }
-//             }
-//
-//             _ => {
-//                 //FIXME should return a malformed packets error
-//                 panic!() // should return a malformed packets Error
-//             }
-//         };
-//         p_vec.push(p);
-//     }
-//     Ok(p_vec)
-// }
-pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, Error> {
+pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> {
     println!("decode property is {:?}", b);
     println!("pre varint length is {}", b.len());
     let length = varint(b)?;
@@ -565,6 +435,7 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, Error> {
                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
                     &mut sub_b,
                 )?;
+
                 Property::ContentType(Utf8EncodedString(str))
             }
 
@@ -573,6 +444,7 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, Error> {
                     String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
                     &mut sub_b,
                 )?;
+
                 Property::ContentType(Utf8EncodedString(str))
             }
 
@@ -703,7 +575,7 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, Error> {
             prop if Property::SharedSubscriptionAvailable as u8 == prop => {
                 Property::SharedSubscriptionAvailable(Byte(sub_b.get_u8()))
             }
-            _ => return Err(Error::UnknownProperty(property_identifier)),
+            _ => return Err(DecodeError::UnknownProperty(property_identifier)),
         };
 
         p_vec.push(p);
@@ -714,15 +586,11 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, Error> {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    // use crate::mqttbroker::mqtt_broker::primitive_types::{
-    //     BinaryData, Byte, FourByteInteger, TwoByteInteger, Utf8EncodedString, Utf8StringPair,
-    //     VariableByteInteger,
-    // };
     use crate::mqttbroker::packets::PacketTypes;
+    use std::collections::HashMap;
 
-    use crate::decode::{binary, decode_utf8_string_pair, varint, Error};
-    use crate::encode::{binary_data, utf8_encoded_string, variable_byte_integer, Error};
+    use crate::decode::{binary, decode_utf8_string_pair, varint, DecodeError};
+    use crate::encode::{binary_data, utf8_encoded_string, variable_byte_integer, EncodeError};
 
     use crate::mqttbroker::primitive_types::{
         BinaryData, Byte, FourByteInteger, TwoByteInteger, Utf8EncodedString, Utf8StringPair,
@@ -758,7 +626,7 @@ mod test {
         binary_data(value, buf);
     }
 
-    fn subscription_identifier(value: u32, buf: &mut BytesMut) -> Result<(), Error> {
+    fn subscription_identifier(value: u32, buf: &mut BytesMut) -> Result<(), EncodeError> {
         buf.put_u8(Property::SubscriptionIdentifier as u8);
         variable_byte_integer(&VariableByteInteger::new(value), buf)
     }
@@ -794,7 +662,11 @@ mod test {
         b.put_u8(2);
         let name = String::from("name");
         assert_eq!(
-            Err(Error::MoreBytesRequired(2, b.len() as u16, name.clone())),
+            Err(DecodeError::MoreBytesRequired(
+                2,
+                b.len() as u16,
+                name.clone()
+            )),
             decode::two_byte_integer(name, b)
         );
     }
@@ -815,7 +687,11 @@ mod test {
         b.put_u16(257);
         let name = String::from("name");
         assert_eq!(
-            Err(Error::MoreBytesRequired(4, b.len() as u16, name.clone())),
+            Err(DecodeError::MoreBytesRequired(
+                4,
+                b.len() as u16,
+                name.clone()
+            )),
             decode::four_byte_integer(name, b)
         );
     }
@@ -853,7 +729,7 @@ mod test {
         b.put_u8(1);
         let name = String::from("name");
         assert_eq!(
-            Err(decode::Error::NotEnoughBytes(name.clone())),
+            Err(decode::DecodeError::NotEnoughBytes(name.clone())),
             decode::utf8_string(name, b)
         );
     }
@@ -866,7 +742,7 @@ mod test {
         b.put_u16(str.len() as u16);
         b.put_slice(str.as_slice());
         assert_eq!(
-            Err(Error::UTF8Errors(name.clone())),
+            Err(DecodeError::UTF8Errors(name.clone())),
             decode::utf8_string(name, b)
         )
     }
@@ -898,7 +774,10 @@ mod test {
         let b = &mut BytesMut::with_capacity(1);
         b.put_u8(1);
         let name = String::from("name");
-        assert_eq!(Err(Error::NotEnoughBytes(name.clone())), binary(name, b));
+        assert_eq!(
+            Err(DecodeError::NotEnoughBytes(name.clone())),
+            binary(name, b)
+        );
     }
 
     #[test]

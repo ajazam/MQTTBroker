@@ -202,76 +202,37 @@ impl From<Property> for PropertyIdentifier {
 impl Property {
     pub fn encode(&self, encoded: &mut Vec<u8>) {
         match self {
-            p @ Property::MessageExpiryInterval(value) => {
-                Self::encode_four_byte_integer(p, value, encoded);
-            }
-
-            // p @ Property::ContentType(value) => {
-            //     Self::encode_utf8_encoded_string(p, value, encoded);
-            // }
-            //
-            // p @ Property::ResponseTopic(value) => {
-            //     Self::encode_utf8_encoded_string(p, value, encoded);
-            // }
-            p @ (Property::ContentType(value) | Property::ResponseTopic(value)) => {
-                Self::encode_utf8_encoded_string(p, value, encoded);
-            }
-
             p @ Property::CorrelationData(value) => Self::encode_binary_data(p, value, encoded),
 
             p @ Property::SubscriptionIdentifier(value) => {
                 Self::encode_variable_byte_integer(p, value, encoded);
             }
 
-            p @ Property::SessionExpiryInterval(value) => {
+            p @ (Property::SessionExpiryInterval(value)
+            | Property::MaximumPacketSize(value)
+            | Property::WillDelayInterval(value)
+            | Property::MessageExpiryInterval(value)) => {
                 Self::encode_four_byte_integer(p, value, encoded);
-            }
-
-            p @ Property::MaximumPacketSize(value) => {
-                Self::encode_four_byte_integer(p, value, encoded);
-            }
-
-            p @ Property::AssignedClientIdentifier(value) => {
-                Self::encode_utf8_encoded_string(p, value, encoded);
-            }
-
-            p @ Property::ServerKeepAlive(value) => {
-                Self::encode_two_byte_integer(p, value, encoded);
-            }
-
-            p @ Property::AuthenticationMethod(value) => {
-                Self::encode_utf8_encoded_string(p, value, encoded);
             }
 
             p @ Property::AuthenticationData(value) => {
                 Self::encode_binary_data(p, value, encoded);
             }
 
-            p @ Property::WillDelayInterval(value) => {
-                Self::encode_four_byte_integer(p, value, encoded);
-            }
-
-            p @ Property::ResponseInformation(value) => {
+            p @ (Property::ResponseInformation(value)
+            | Property::ServerReference(value)
+            | Property::ReasonString(value)
+            | Property::ContentType(value)
+            | Property::AuthenticationMethod(value)
+            | Property::AssignedClientIdentifier(value)
+            | Property::ResponseTopic(value)) => {
                 Self::encode_utf8_encoded_string(p, value, encoded);
             }
 
-            p @ Property::ServerReference(value) => {
-                Self::encode_utf8_encoded_string(p, value, encoded);
-            }
-
-            p @ Property::ReasonString(value) => {
-                Self::encode_utf8_encoded_string(p, value, encoded);
-            }
-
-            p @ Property::ReceiveMaximum(value) => {
-                Self::encode_two_byte_integer(p, value, encoded);
-            }
-
-            p @ Property::TopicAliasMaximum(value) => {
-                Self::encode_two_byte_integer(p, value, encoded);
-            }
-
-            p @ Property::TopicAlias(value) => {
+            p @ (Property::ReceiveMaximum(value)
+            | Property::TopicAliasMaximum(value)
+            | Property::TopicAlias(value)
+            | Property::ServerKeepAlive(value)) => {
                 Self::encode_two_byte_integer(p, value, encoded);
             }
 
@@ -279,36 +240,14 @@ impl Property {
                 Self::encode_utf8_string_pair(p, value, encoded);
             }
 
-            p @ Property::PayloadFormatIndicator(value) => {
-                Self::encode_byte(p, value, encoded);
-            }
-
-            p @ Property::RequestProblemInformation(value) => {
-                Self::encode_byte(p, value, encoded);
-            }
-
-            p @ Property::RequestResponseInformation(value) => {
-                Self::encode_byte(p, value, encoded);
-            }
-
-            p @ Property::MaximumQos(value) => {
-                Self::encode_byte(p, value, encoded);
-            }
-
-            p @ Property::RetainAvailable(value) => {
-                Self::encode_byte(p, value, encoded);
-            }
-
-            p @ Property::WildcardSubscriptionAvailable(value) => {
-                Self::encode_byte(p, value, encoded);
-            }
-            p @ Property::SubscriptionIdentifierAvailable(value) => {
-                Self::encode_byte(p, value, encoded);
-            }
-
-            p @ Property::SharedSubscriptionAvailable(value) => {
-                Self::encode_byte(p, value, encoded);
-            }
+            p @ (Property::PayloadFormatIndicator(value)
+            | Property::RequestProblemInformation(value)
+            | Property::RequestResponseInformation(value)
+            | Property::MaximumQos(value)
+            | Property::RetainAvailable(value)
+            | Property::WildcardSubscriptionAvailable(value)
+            | Property::SubscriptionIdentifierAvailable(value)
+            | Property::SharedSubscriptionAvailable(value)) => Self::encode_byte(p, value, encoded),
         }
     }
 

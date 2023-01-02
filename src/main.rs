@@ -11,7 +11,7 @@ extern crate quickcheck_macros;
 extern crate lazy_static;
 
 use bytes::{Buf, BufMut, BytesMut};
-use tracing::{debug, event, span, Level};
+use tracing::{debug, event, span, trace, Level};
 use tracing_subscriber::fmt;
 
 extern crate core;
@@ -41,16 +41,15 @@ fn main() {
     let v1 = b1.get_u8();
     let v2 = b1.get_u8();
     let mut iterator = b1.iter();
-    debug!("{:?}", iterator.next());
-    debug!("{:?}", iterator.next());
+    trace!("{:?}", iterator.next());
+    trace!("{:?}", iterator.next());
     iterator.next();
     iterator.next();
     event!(Level::INFO, "buffer is {:?}", b1);
     //let mut reader = b1.reader();
     let v3 = b1.get_u8();
-    //debug!("reader is {:?}", reader);
+    //trace!("reader is {:?}", reader);
     event!(Level::INFO, "v3 is {:?}", v3);
-    print!("yello");
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ pub mod mqtt_broker {
                 use crate::mqttbroker::packets::connect::{Builder, Connect};
                 use crate::mqttbroker::packets::{BuilderLifecycle, Decoder, Encoder};
                 use bytes::BytesMut;
-                use tracing::debug;
+                use tracing::{debug, trace};
 
                 #[test]
                 fn test_connect() {
@@ -56,14 +56,14 @@ pub mod mqtt_broker {
                     let original_connect_packet_clone = original_connect_packet.packet.clone();
                     let encoded_packet = original_connect_packet.build();
                     let mut encoded_packet = encoded_packet.unwrap().encode().unwrap();
-                    println!("encoded packets is {encoded_packet:?}");
+                    trace!("encoded packets is {encoded_packet:?}");
                     //decode packets
 
                     let decoded_connect_packet = Connect::decode(&mut encoded_packet).unwrap();
 
                     assert_eq!(original_connect_packet_clone, decoded_connect_packet);
-                    println!("original packets is {original_connect_packet_clone:?}");
-                    println!("decoded packets is {decoded_connect_packet:?}");
+                    trace!("original packets is {original_connect_packet_clone:?}");
+                    trace!("decoded packets is {decoded_connect_packet:?}");
                 }
 
                 #[test]

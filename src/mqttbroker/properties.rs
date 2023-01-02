@@ -6,6 +6,7 @@ use crate::mqttbroker::primitive_types::{
 use bytes::BufMut;
 use std::collections::HashMap;
 use std::ops::Deref;
+use tracing::trace;
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Hash, Copy, Clone)]
 #[repr(u8)]
@@ -90,7 +91,8 @@ pub enum Property {
         PropertyIdentifierConstant::WildcardSubscriptionAvailable as u8,
     SubscriptionIdentifierAvailable(Byte) =
         PropertyIdentifierConstant::SubscriptionIdentifierAvailable as u8,
-    SharedSubscriptionAvailable(Byte) = 0x2a,
+    SharedSubscriptionAvailable(Byte) =
+        PropertyIdentifierConstant::SharedSubscriptionAvailable as u8,
 }
 
 impl From<&Property> for PropertyIdentifier {
@@ -310,15 +312,15 @@ impl Property {
     }
 }
 
+#[tracing::instrument]
 /// Will return a list of invalid properties
 ///
-fn invalid_property_for_packet_type(
+///
+pub fn invalid_property_for_packet_type(
     properties: &[Property],
-    validated_properties: Vec<PropertyIdentifier>,
     pack_type: PacketTypes,
 ) -> Vec<Property> {
     let mut valid_property_identifiers: Vec<PropertyIdentifier> = vec![];
-    valid_property_identifiers.extend(validated_properties);
 
     let property_extension = match pack_type {
         PacketTypes::Connect => valid_properties_for_connect_packet(),
@@ -341,33 +343,11 @@ fn invalid_property_for_packet_type(
 
     let mut invalid: Vec<Property> = Vec::with_capacity(13);
 
-    println!("valid properties are {valid_property_identifiers:?}");
+    trace!("valid properties are {valid_property_identifiers:?}");
 
     invalid_property(properties, &valid_property_identifiers, &mut invalid);
 
     invalid
-}
-
-pub fn invalid_property_for_non_connect_packet_type(
-    properties: &[Property],
-    packet_type: PacketTypes,
-) -> Vec<Property> {
-    invalid_property_for_packet_type(properties, vec![], packet_type)
-}
-
-pub fn invalid_property_for_connect_packet_type(
-    properties: &[Property],
-    will_flag: bool,
-) -> Vec<Property> {
-    invalid_property_for_packet_type(
-        properties,
-        if will_flag {
-            valid_properties_for_will()
-        } else {
-            vec![]
-        },
-        PacketTypes::Connect,
-    )
 }
 
 pub fn invalid_property(
@@ -375,8 +355,9 @@ pub fn invalid_property(
     valid_property_identifier: &[PropertyIdentifier],
     differences: &mut Vec<Property>,
 ) {
-    println!("properties are {property:?}");
-    println!("valid_property_identifiers are {valid_property_identifier:?}");
+    trace!("properties are {property:?}");
+    println!("properties are {:?}", property);
+    trace!("valid_property_identifiers are {valid_property_identifier:?}");
     for p in property {
         if !valid_property_identifier
             .contains(&PropertyIdentifier::new(PropertyIdentifier::from(p).value))
@@ -662,14 +643,4 @@ mod test {
         invalid_property(&props, &valid_prop_ids, &mut result);
         assert_eq!(expected, result);
     }
-
-    // #[test]
-    // fn test_non_unique_properties() {
-    //     let mut properties = vec![Property {
-    //         element_value: PropertyType::Byte {
-    //             value: Byte::new(0x01),
-    //         },
-    //         property_identifier: PropertyIdentifier::SubscriptionIdentifier as u8,
-    //     }];
-    // }
 }

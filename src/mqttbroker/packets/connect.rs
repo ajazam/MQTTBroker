@@ -4,7 +4,7 @@ use crate::mqttbroker::packets::connect::encode_validation::will_properties_are_
 use crate::mqttbroker::packets::error::PropertyError;
 use crate::mqttbroker::packets::{
     connect_flags, encode_properties, BuilderLifecycle, Decoder, Encoder, GeneratePacketParts,
-    PacketTypes,
+    PacketTypes, Properties,
 };
 use crate::mqttbroker::primitive_types::VariableByteInteger;
 use crate::mqttbroker::properties::{
@@ -293,46 +293,6 @@ impl Builder {
         self
     }
 
-    #[tracing::instrument]
-    pub fn set_properties(&mut self, property: &Vec<Property>) -> Result<(), PropertyError> {
-        let mut added_property: Vec<Property> = Vec::with_capacity(100);
-        added_property.append(&mut property.clone());
-
-        let invalid_properties = invalid_property_for_packet_type(&property, PacketTypes::Connect);
-
-        if !invalid_properties.is_empty() {
-            return Err(PropertyError::InvalidProperty(
-                invalid_properties,
-                String::from("CONNECT"),
-            ));
-        };
-
-        let non_unique_properties = non_unique(&property);
-        if !non_unique_properties.is_empty() {
-            return Err(PropertyError::PropertyAlreadyInserted(
-                non_unique_properties,
-                String::from("CONNECT"),
-            ));
-        }
-
-        let mut packet_properties: Vec<Property> = vec![];
-        packet_properties.append(&mut added_property); // added_property field is empty
-        self.packet.variable_header_properties = None;
-
-        self.packet.variable_header_properties = if packet_properties.len() > 0 {
-            let mut properties = vec![];
-            properties.append(&mut packet_properties);
-            Some(properties)
-        } else {
-            None
-        };
-
-        trace!(
-            "saved properties in variable are {:?}",
-            self.packet.variable_header_properties
-        );
-        Ok(())
-    }
     pub fn client_id(mut self, ci: String) -> Self {
         self.packet.client_id = ci;
         self
@@ -435,6 +395,24 @@ impl Builder {
     }
 }
 
+impl Properties for Builder {
+    fn packet_type(&self) -> PacketTypes {
+        PacketTypes::Connect
+    }
+
+    fn packet_type_string(&self) -> String {
+        String::from("CONNECT")
+    }
+
+    fn variable_header_properties(&self) -> &Option<Vec<Property>> {
+        &self.packet.variable_header_properties
+    }
+
+    fn set_variable_header_properties(&mut self, p: Option<Vec<Property>>) {
+        self.packet.variable_header_properties = p;
+    }
+}
+
 impl GeneratePacketParts for Connect {
     fn generate_fixed_header(&self, fixed_header_remaining_length: usize) -> BytesMut {
         let mut fixed_header = BytesMut::with_capacity(5);
@@ -533,6 +511,7 @@ impl GeneratePacketParts for Connect {
             .unwrap();
 
             payload.put(encoded_will_properties_size);
+
             payload.put(encoded_will_properties.as_slice());
 
             // will topic
@@ -801,7 +780,7 @@ impl Decoder<Connect, Error> for Connect {
 pub mod test {
     use crate::mqttbroker::packets::connect::{Builder, Connect};
     use crate::mqttbroker::packets::error::PropertyError;
-    use crate::mqttbroker::packets::{BuilderLifecycle, Decoder, Encoder};
+    use crate::mqttbroker::packets::{BuilderLifecycle, Decoder, Encoder, Properties};
     use crate::mqttbroker::primitive_types::{Byte, FourByteInteger};
     use crate::mqttbroker::properties::{Property, PropertyIdentifier};
     use pretty_hex::*;

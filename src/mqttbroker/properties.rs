@@ -356,7 +356,6 @@ pub fn invalid_property(
     differences: &mut Vec<Property>,
 ) {
     trace!("properties are {property:?}");
-    println!("properties are {:?}", property);
     trace!("valid_property_identifiers are {valid_property_identifier:?}");
     for p in property {
         if !valid_property_identifier

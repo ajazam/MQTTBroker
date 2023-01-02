@@ -45,8 +45,10 @@ pub trait GeneratePacketParts {
 }
 
 use crate::mqttbroker::packets::connect::Connect;
-use crate::mqttbroker::properties::Property;
+use crate::mqttbroker::packets::error::PropertyError;
+use crate::mqttbroker::properties::{invalid_property_for_packet_type, non_unique, Property};
 use thiserror::Error;
+use tracing::trace;
 
 #[derive(Error, Debug)]
 pub enum ConnectPacketBuildError {
@@ -709,5 +711,55 @@ pub mod reason_codes {
         SharedSubscriptionsNotSupported = 0x9e,
         SubscriptionIdentifiersNotSupported = 0xa1,
         WildcardSubscriptionsNotSupported = 0xa2,
+    }
+}
+
+trait Properties {
+    fn packet_type(&self) -> PacketTypes;
+    fn packet_type_string(&self) -> String;
+    fn variable_header_properties(&self) -> &Option<Vec<Property>>;
+
+    fn set_variable_header_properties(&mut self, p: Option<Vec<Property>>);
+
+    fn set_properties(&mut self, property: &Vec<Property>) -> Result<(), PropertyError> {
+        let mut added_property: Vec<Property> = Vec::with_capacity(100);
+        added_property.append(&mut property.clone());
+
+        let invalid_properties = invalid_property_for_packet_type(&property, self.packet_type());
+
+        if !invalid_properties.is_empty() {
+            return Err(PropertyError::InvalidProperty(
+                invalid_properties,
+                self.packet_type_string(),
+            ));
+        };
+
+        let non_unique_properties = non_unique(&property);
+        if !non_unique_properties.is_empty() {
+            return Err(PropertyError::PropertyAlreadyInserted(
+                non_unique_properties,
+                self.packet_type_string(),
+            ));
+        }
+
+        let mut packet_properties: Vec<Property> = vec![];
+        packet_properties.append(&mut added_property); // added_property field is empty
+        let mut variable_header_properties = self.variable_header_properties();
+        variable_header_properties = &None;
+
+        if packet_properties.len() > 0 {
+            let mut properties = vec![];
+            properties.append(&mut packet_properties);
+            let c = properties.clone();
+            self.set_variable_header_properties(Some(c));
+        } else {
+            self.set_variable_header_properties(None);
+        };
+
+        trace!(
+            "saved properties in variable are {:?}",
+            variable_header_properties
+        );
+        Ok(())
     }
 }

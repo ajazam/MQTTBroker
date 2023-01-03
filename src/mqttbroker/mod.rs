@@ -51,8 +51,14 @@ pub mod mqtt_broker {
                 #[test]
                 fn test_connect() {
                     // generate packets
-                    let original_connect_packet =
-                        Builder::new().will_message(vec![], "/topic".to_string(), vec![77, 66, 12]);
+
+                    let mut original_connect_packet = Builder::new();
+                    let res = original_connect_packet.will_message(
+                        &vec![],
+                        "/topic".to_string(),
+                        vec![77, 66, 12],
+                    );
+
                     let original_connect_packet_clone = original_connect_packet.packet.clone();
                     let encoded_packet = original_connect_packet.build();
                     let mut encoded_packet = encoded_packet.unwrap().encode().unwrap();

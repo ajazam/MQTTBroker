@@ -20,7 +20,7 @@ impl ConnAck {
     }
     pub fn set_session_present(&mut self, session_present: bool) {
         if session_present {
-            self.connect_ack_flags |= ConnAck::SESSION_PRESENT;
+            self.connect_ack_flags = ConnAck::SESSION_PRESENT;
         }
         self.connect_ack_flags = 0;
     }

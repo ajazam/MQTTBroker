@@ -218,8 +218,30 @@ pub mod encode_validation {
 }
 
 pub mod decode_validate {
-    pub fn client_id_correctly_formatted() -> bool {
-        todo!()
+    pub fn client_id_correctly_formatted(str: String) -> bool {
+        for c in str.chars() {
+            if !c.is_ascii_alphanumeric() {
+                return false;
+            }
+        }
+
+        true
+    }
+    #[cfg(test)]
+    pub mod test {
+        use crate::mqttbroker::packets::connect::decode_validate::client_id_correctly_formatted;
+
+        #[test]
+        fn should_client_id_correctly_formatted() {
+            assert!(client_id_correctly_formatted(String::from("12345ABCabc")));
+        }
+
+        #[test]
+        fn should_be_incorrectly_formatted_client_id() {
+            assert!(!client_id_correctly_formatted(String::from(
+                "12345ABCabc_!£$%^&*()"
+            )));
+        }
     }
 }
 
@@ -249,18 +271,6 @@ pub struct Builder {
 }
 
 impl Builder {
-    // pub fn set_packet_type(mut self, pt: u8) -> Self {
-    //     // don't need. We know it's for a connect packets
-    //     self.packet.packet_type = pt;
-    //     self
-    // }
-
-    // Don't need because we know it's for the MQTT protocol
-    // pub fn set_protocol_name(mut self, pn: String) -> Self {
-    //     self.packet.protocol_name = pn;
-    //     self
-    // }
-
     //Don't need to specify version number because the code is for v5.0
 
     pub fn set_keep_alive(mut self, keep_alive: u16) -> Self {
@@ -299,12 +309,12 @@ impl Builder {
     }
 
     fn will_properties(
-        mut self,
-        assigned_will_properties: Vec<Property>,
-    ) -> Result<Self, PropertyError> {
+        &mut self,
+        assigned_will_properties: &Vec<Property>,
+    ) -> Result<(), PropertyError> {
         let mut properties: Vec<Property> = vec![];
 
-        for p in &assigned_will_properties {
+        for p in assigned_will_properties {
             properties.push(p.clone())
         }
 
@@ -333,8 +343,8 @@ impl Builder {
             ));
         }
 
-        self.packet.will_properties = Some(assigned_will_properties);
-        Ok(self)
+        self.packet.will_properties = Some(assigned_will_properties.clone());
+        Ok(())
     }
 
     fn will_topic(mut self, topic: String) -> Self {
@@ -348,17 +358,18 @@ impl Builder {
     }
 
     pub fn will_message(
-        mut self,
-        will_properties: Vec<Property>,
+        &mut self,
+        will_properties: &Vec<Property>,
         will_topic: String,
         will_payload: Vec<u8>,
-    ) -> Self {
-        self.packet.will_properties = Some(will_properties); // need to check for invalid will properties
+    ) -> Result<(), PropertyError> {
+        self.will_properties(will_properties)?;
+
         self.packet.will_topic = Some(will_topic);
         self.packet.will_payload = Some(will_payload);
         self.packet.connect_flags |= connect_flags::WILL_FLAG;
 
-        self
+        Ok(())
     }
 
     pub fn username(mut self, username: Option<String>) -> Self {
@@ -552,10 +563,6 @@ impl BuilderLifecycle<Connect> for Builder {
 
     fn build(self) -> anyhow::Result<Connect> {
         let connect_packet = self.packet;
-        will_properties_are_valid(&connect_packet)?;
-        // check properties
-        // properties are checked when they are set.
-
         Ok(connect_packet)
     }
 }
@@ -866,8 +873,7 @@ pub mod test {
         original_packet = original_packet.password(Some("hello".to_string()));
         original_packet = original_packet.client_id("ID".to_string());
         original_packet = original_packet.set_keep_alive(1000);
-        original_packet =
-            original_packet.will_message(vec![], "topic".to_string(), vec![1, 2, 3, 4]);
+        let res = original_packet.will_message(&vec![], "topic".to_string(), vec![1, 2, 3, 4]);
         // payload fields - end
 
         let built_packet = original_packet.build().unwrap();

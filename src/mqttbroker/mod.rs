@@ -43,9 +43,9 @@ pub mod mqtt_broker {
         mod server {
             #[cfg(test)]
             mod test {
-                use crate::mqttbroker::packets::connect::{Connect, ConnectBuilder};
+                use crate::mqttbroker::packets::connect::builder::ConnectBuilder;
+                use crate::mqttbroker::packets::connect::Connect;
                 use crate::mqttbroker::packets::{BuilderLifecycle, Decoder, Encoder};
-                use bytes::BytesMut;
                 use tracing::{debug, trace};
 
                 #[test]

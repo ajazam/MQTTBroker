@@ -8,13 +8,14 @@ pub mod puback;
 pub mod pubcomp;
 pub mod publish;
 pub mod pubrec;
+
 pub mod pubrel;
 pub mod suback;
 pub mod subscribe;
 pub mod unsuback;
 pub mod unsubscribe;
 
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 mod error {
     use crate::mqttbroker::properties::{Property, PropertyIdentifier};
     use std::collections::HashMap;
@@ -616,7 +617,7 @@ pub fn encode_fixed_header(
 
 #[cfg(test)]
 mod encode_test {
-    use crate::mqttbroker::packets::connect::ConnectBuilder;
+    use crate::mqttbroker::packets::connect::builder::ConnectBuilder;
     use crate::mqttbroker::packets::BuilderLifecycle;
 
     #[test]

@@ -1,15 +1,13 @@
-use crate::decode::{binary, property, utf8_string, varint};
+use crate::decode::{binary, decode_property, property, utf8_string, varint};
 use crate::encode::{utf8_encoded_string, variable_byte_integer};
-use crate::mqttbroker::packets::connect::encode_validation::will_properties_are_valid;
 use crate::mqttbroker::packets::error::PropertyError;
 use crate::mqttbroker::packets::{
-    connect_flags, encode_properties, BuilderLifecycle, Decoder, Encoder, GeneratePacketParts,
-    PacketTypes, Properties,
+    connect_flags, encode_properties, encode_properties_to_vec, BuilderLifecycle, Decoder, Encoder,
+    GeneratePacketParts, PacketTypes, Properties,
 };
 use crate::mqttbroker::primitive_types::VariableByteInteger;
 use crate::mqttbroker::properties::{
-    invalid_property, invalid_property_for_packet_type, non_unique, valid_properties_for_will,
-    Property,
+    invalid_property, non_unique, valid_properties_for_will, Property,
 };
 use bytes::{Buf, BufMut, BytesMut};
 use pretty_hex::*;
@@ -22,7 +20,7 @@ pub struct Connect {
     pub packet_type: u8,
     /// fixed header
     ///
-    pub packet_type_flags: u8,
+    pub packet_type_low_nibble: u8,
 
     // variable header
     pub protocol_name: String,
@@ -66,16 +64,28 @@ impl Connect {
         self.connect_flags & connect_flags::CLEAN_START > 0
     }
 
-    pub fn builder() -> Builder {
-        Builder::default()
+    pub fn builder() -> ConnectBuilder {
+        ConnectBuilder::default()
     }
 }
 
-pub mod encode_validation {
+pub mod encode_validation {}
+
+pub mod decode_validate {
+
     use crate::mqttbroker::packets::connect::Connect;
     use crate::mqttbroker::packets::ConnectPacketBuildError::{
         WillFlagNotSet, WillPayLoadNotSet, WillTopicNotSet,
     };
+    pub fn client_id_correctly_formatted(str: String) -> bool {
+        for c in str.chars() {
+            if !c.is_ascii_alphanumeric() {
+                return false;
+            }
+        }
+
+        true
+    }
 
     pub fn will_properties_are_valid(connect_packet: &Connect) -> anyhow::Result<()> {
         if is_will_flag_not_set_and_will_properties_set_error(connect_packet) {
@@ -161,11 +171,24 @@ pub mod encode_validation {
 
     #[cfg(test)]
     pub mod test {
-        use crate::mqttbroker::packets::connect::encode_validation::{
-            is_will_flag_not_set_and_will_properties_set_error,
+        use crate::mqttbroker::packets::connect::decode_validate::{
+            client_id_correctly_formatted, is_will_flag_not_set_and_will_properties_set_error,
             is_will_flag_set_and_will_payload_is_empty_error,
             is_will_flag_set_and_will_topic_is_empty_error,
         };
+
+        #[test]
+        fn should_client_id_correctly_formatted() {
+            assert!(client_id_correctly_formatted(String::from("12345ABCabc")));
+        }
+
+        #[test]
+        fn should_be_incorrectly_formatted_client_id() {
+            assert!(!client_id_correctly_formatted(String::from(
+                "12345ABCabc_!£$%^&*()"
+            )));
+        }
+
         use crate::mqttbroker::packets::connect::Connect;
         use crate::mqttbroker::packets::connect_flags;
         use crate::mqttbroker::primitive_types::FourByteInteger;
@@ -217,39 +240,11 @@ pub mod encode_validation {
     }
 }
 
-pub mod decode_validate {
-    pub fn client_id_correctly_formatted(str: String) -> bool {
-        for c in str.chars() {
-            if !c.is_ascii_alphanumeric() {
-                return false;
-            }
-        }
-
-        true
-    }
-    #[cfg(test)]
-    pub mod test {
-        use crate::mqttbroker::packets::connect::decode_validate::client_id_correctly_formatted;
-
-        #[test]
-        fn should_client_id_correctly_formatted() {
-            assert!(client_id_correctly_formatted(String::from("12345ABCabc")));
-        }
-
-        #[test]
-        fn should_be_incorrectly_formatted_client_id() {
-            assert!(!client_id_correctly_formatted(String::from(
-                "12345ABCabc_!£$%^&*()"
-            )));
-        }
-    }
-}
-
 impl Default for Connect {
     fn default() -> Self {
         Connect {
-            packet_type: (PacketTypes::Connect as u8),
-            packet_type_flags: 0,
+            packet_type: PacketTypes::Connect as u8,
+            packet_type_low_nibble: 0,
             protocol_name: String::from("MQTT"),
             protocol_version: 5u8,
             keep_alive: 0,
@@ -266,11 +261,11 @@ impl Default for Connect {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Builder {
+pub struct ConnectBuilder {
     pub packet: Connect,
 }
 
-impl Builder {
+impl ConnectBuilder {
     //Don't need to specify version number because the code is for v5.0
 
     pub fn set_keep_alive(mut self, keep_alive: u16) -> Self {
@@ -406,7 +401,7 @@ impl Builder {
     }
 }
 
-impl Properties for Builder {
+impl Properties for ConnectBuilder {
     fn packet_type(&self) -> PacketTypes {
         PacketTypes::Connect
     }
@@ -425,42 +420,6 @@ impl Properties for Builder {
 }
 
 impl GeneratePacketParts for Connect {
-    fn generate_fixed_header(&self, fixed_header_remaining_length: usize) -> BytesMut {
-        let mut fixed_header = BytesMut::with_capacity(5);
-
-        let pt = (self.packet_type << 4) + (self.packet_type_flags & 0x0f);
-
-        trace!("pt is {pt:?}");
-
-        fixed_header.put_u8(pt);
-
-        let fh_len = fixed_header.len();
-
-        let packet_type = self.packet_type;
-
-        let packet_type_flags = self.packet_type_flags;
-
-        trace!("self.packet_type is {packet_type}");
-
-        trace!("fixed header in generate_fixed_headers {fixed_header:?}, size is {fh_len:?}");
-
-        let packet_type = *fixed_header.get(0).unwrap();
-        trace!("packet type is {packet_type:?}");
-
-        // need to capture error here.
-        variable_byte_integer(
-            "remaining length",
-            &VariableByteInteger::new(fixed_header_remaining_length as u32),
-            &mut fixed_header,
-        )
-        .unwrap();
-        trace!(
-            "fixed header is {:?}",
-            fixed_header.clone().to_vec().hex_dump()
-        );
-        fixed_header
-    }
-
     fn generate_variable_header(&self) -> BytesMut {
         // variable header // Protocol Name, protocol level, connect flags, keep alive and properties
         let mut variable_header = BytesMut::with_capacity(200);
@@ -473,26 +432,12 @@ impl GeneratePacketParts for Connect {
 
         variable_header.put_u8(self.protocol_version);
 
-        variable_header.put_u8(Builder::generate_connect_flags(self));
+        variable_header.put_u8(ConnectBuilder::generate_connect_flags(self));
 
         variable_header.put_u16(self.keep_alive);
 
         // Connect Properties
-        let encoded_variable_header_properties = if self.variable_header_properties.is_none() {
-            vec![]
-        } else {
-            encode_properties(&self.variable_header_properties)
-        };
-
-        let mut encoded_variable_header_properties_size: BytesMut = BytesMut::with_capacity(4);
-        variable_byte_integer(
-            "varaible header properties size",
-            &VariableByteInteger::new(encoded_variable_header_properties.len() as u32),
-            &mut encoded_variable_header_properties_size,
-        )
-        .unwrap();
-        variable_header.put_slice(encoded_variable_header_properties_size.iter().as_slice());
-        variable_header.put_slice(encoded_variable_header_properties.as_slice());
+        variable_header = encode_properties(variable_header, &self.variable_header_properties);
         trace!(
             "variable_header is {:?}",
             variable_header.clone().to_vec().hex_dump()
@@ -511,7 +456,7 @@ impl GeneratePacketParts for Connect {
         if self.will_flag() {
             trace!("will flag for encoding is set");
 
-            let encoded_will_properties = encode_properties(&self.will_properties);
+            let encoded_will_properties = encode_properties_to_vec(&self.will_properties);
 
             let mut encoded_will_properties_size = BytesMut::with_capacity(4);
             variable_byte_integer(
@@ -556,67 +501,20 @@ impl GeneratePacketParts for Connect {
         payload
     }
 }
-impl BuilderLifecycle<Connect> for Builder {
-    fn new() -> Builder {
+impl BuilderLifecycle<Connect, Error> for ConnectBuilder {
+    fn new() -> ConnectBuilder {
         Default::default()
     }
 
-    fn build(self) -> anyhow::Result<Connect> {
+    fn build(self) -> Result<Connect, Error> {
         let connect_packet = self.packet;
         Ok(connect_packet)
     }
 }
 
-impl Encoder<Error> for Connect {
-    fn encode(&self) -> anyhow::Result<BytesMut> {
-        // checks not required here because they will be done inside the
+impl Encoder<Connect> for Connect {}
 
-        // let _ = will_properties_are_valid(self);
-
-        // start of variable header >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        trace!("start of encode");
-
-        let variable_header = self.generate_variable_header();
-        trace!(
-            "variable header is {:?}",
-            pretty_hex(&variable_header.to_vec())
-        );
-
-        // end of variable header <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-        let payload = self.generate_payload();
-
-        trace!("payload is {:?}", pretty_hex(&payload.to_vec()));
-
-        // start of making actual bytes for packets
-        let fixed_header_remaining_length = variable_header.len() + payload.len();
-
-        let mut connect_packet = BytesMut::with_capacity(fixed_header_remaining_length + 1 + 4);
-
-        // start of fixed header >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-        let fixed_header = self.generate_fixed_header(fixed_header_remaining_length);
-
-        trace!("fixed header is {:?}", pretty_hex(&fixed_header.to_vec()));
-
-        // end of fixed header <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-        connect_packet.put(fixed_header);
-        connect_packet.put(variable_header);
-        connect_packet.put(payload);
-
-        trace!(
-            "full packet  is {:?}",
-            pretty_hex(&connect_packet.clone().to_vec())
-        );
-        // end of making actual bytes for packets
-        trace!("end of encode");
-
-        Ok(BytesMut::from(connect_packet.to_vec().as_slice()))
-    }
-}
-
-impl Decoder<Connect, Error> for Connect {
+impl Decoder<Connect> for Connect {
     fn decode(bytes: &mut BytesMut) -> anyhow::Result<Connect> {
         // checks are required here
         trace!("start of decode ---");
@@ -661,17 +559,7 @@ impl Decoder<Connect, Error> for Connect {
 
         trace!("bytes before reading properties {bytes:?}");
 
-        let variable_header_properties: Option<Vec<Property>> = {
-            let p = property(bytes).unwrap();
-
-            if !p.is_empty() {
-                trace!("properties are {:?}", p);
-                Some(p)
-            } else {
-                trace!("properties are empty");
-                None
-            }
-        };
+        let variable_header_properties = decode_property(bytes);
 
         trace!("bytes after reading properties {bytes:?}");
 
@@ -767,7 +655,7 @@ impl Decoder<Connect, Error> for Connect {
         trace!("end of decode ---");
         Ok(Connect {
             packet_type,
-            packet_type_flags,
+            packet_type_low_nibble: packet_type_flags,
             protocol_name,
             protocol_version,
             connect_flags,
@@ -785,7 +673,7 @@ impl Decoder<Connect, Error> for Connect {
 
 #[cfg(test)]
 pub mod test {
-    use crate::mqttbroker::packets::connect::{Builder, Connect};
+    use crate::mqttbroker::packets::connect::{Connect, ConnectBuilder};
     use crate::mqttbroker::packets::error::PropertyError;
     use crate::mqttbroker::packets::{BuilderLifecycle, Decoder, Encoder, Properties};
     use crate::mqttbroker::primitive_types::{Byte, FourByteInteger};
@@ -798,7 +686,7 @@ pub mod test {
 
     #[test]
     fn should_have_valid_variable_header_properties_for_connect_packet() {
-        let mut packet = Builder::new();
+        let mut packet = ConnectBuilder::new();
         let props = vec![
             Property::PayloadFormatIndicator(Byte(1)),
             Property::SessionExpiryInterval(FourByteInteger(100)),
@@ -823,7 +711,7 @@ pub mod test {
         // tracing::subscriber::set_global_default(subscriber)
         //     .expect("setting default subscriber failed");
 
-        let mut packet = Builder::new();
+        let mut packet = ConnectBuilder::new();
         let props = vec![
             Property::WillDelayInterval(FourByteInteger(1)),
             Property::SessionExpiryInterval(FourByteInteger(100)),
@@ -848,7 +736,7 @@ pub mod test {
     }
 
     #[test]
-    fn should_serdes_connect_packet() {
+    fn should_encode_decode_connect_packet() {
         // let subscriber = FmtSubscriber::builder()
         //     .with_max_level(Level::TRACE)
         //     .finish();
@@ -856,7 +744,7 @@ pub mod test {
         // tracing::subscriber::set_global_default(subscriber)
         //     .expect("setting default subscriber failed");
 
-        let mut original_packet = Builder::new();
+        let mut original_packet = ConnectBuilder::new();
 
         // variable header fields - start
         let props = vec![
@@ -878,7 +766,13 @@ pub mod test {
 
         let built_packet = original_packet.build().unwrap();
 
-        let mut serialized_packet = built_packet.encode().unwrap();
+        let mut serialized_packet = Connect::encode(
+            built_packet.packet_type,
+            built_packet.packet_type_low_nibble,
+            &built_packet,
+        )
+        .unwrap();
+
         trace!(
             "serialized packet is {:?}",
             pretty_hex(&serialized_packet.as_ref().to_vec())

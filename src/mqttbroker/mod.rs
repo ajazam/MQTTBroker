@@ -43,7 +43,7 @@ pub mod mqtt_broker {
         mod server {
             #[cfg(test)]
             mod test {
-                use crate::mqttbroker::packets::connect::{Builder, Connect};
+                use crate::mqttbroker::packets::connect::{Connect, ConnectBuilder};
                 use crate::mqttbroker::packets::{BuilderLifecycle, Decoder, Encoder};
                 use bytes::BytesMut;
                 use tracing::{debug, trace};
@@ -52,7 +52,7 @@ pub mod mqtt_broker {
                 fn test_connect() {
                     // generate packets
 
-                    let mut original_connect_packet = Builder::new();
+                    let mut original_connect_packet = ConnectBuilder::new();
                     let res = original_connect_packet.will_message(
                         &vec![],
                         "/topic".to_string(),
@@ -60,8 +60,14 @@ pub mod mqtt_broker {
                     );
 
                     let original_connect_packet_clone = original_connect_packet.packet.clone();
-                    let encoded_packet = original_connect_packet.build();
-                    let mut encoded_packet = encoded_packet.unwrap().encode().unwrap();
+                    let built_packet = original_connect_packet.build().unwrap();
+
+                    let mut encoded_packet = Connect::encode(
+                        built_packet.packet_type,
+                        built_packet.packet_type_low_nibble,
+                        &built_packet,
+                    )
+                    .unwrap();
                     trace!("encoded packets is {encoded_packet:?}");
                     //decode packets
 

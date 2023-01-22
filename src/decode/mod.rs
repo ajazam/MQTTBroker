@@ -6,67 +6,115 @@ use thiserror::Error;
 use tracing::{debug, trace};
 
 lazy_static! {
-    static ref PROPERTYNAME: HashMap<u8, &'static str> = {
+    static ref PROPERTYNAME: HashMap<u8, String> = {
         let mut h = HashMap::new();
         h.insert(
-            Property::PayloadFormatIndicator as u8,
-            "Payload Format Indicator",
+            PropertyIdentifierConstant::PayloadFormatIndicator as u8,
+            String::from("Payload Format Indicator"),
         );
         h.insert(
-            Property::MessageExpiryInterval as u8,
-            "Message Expiry Interval",
-        );
-        h.insert(Property::ContentType as u8, "Content Type");
-        h.insert(Property::ResponseTopic as u8, "Response Topic");
-        h.insert(Property::CorrelationData as u8, "Correlation Data");
-        h.insert(
-            Property::SubscriptionIdentifier as u8,
-            "Subscription Identifier",
+            PropertyIdentifierConstant::MessageExpiryInterval as u8,
+            String::from("Message Expiry Interval"),
         );
         h.insert(
-            Property::SessionExpiryInterval as u8,
-            "Session Expiry Interval",
+            PropertyIdentifierConstant::ContentType as u8,
+            String::from("Content Type"),
         );
         h.insert(
-            Property::AssignedClientIdentifier as u8,
-            "Assigned Client Identifier",
-        );
-        h.insert(Property::ServerKeepAlive as u8, "Server Keep Alive");
-        h.insert(
-            Property::AuthenticationMethod as u8,
-            "Authentication Method",
-        );
-        h.insert(Property::AuthenticationData as u8, "Authentication Data");
-        h.insert(
-            Property::RequestProblemInformation as u8,
-            "Request Problem Information",
-        );
-        h.insert(Property::WillDelayInterval as u8, "Will Delay Interval");
-        h.insert(
-            Property::RequestResponseInformation as u8,
-            "Request Response Information",
-        );
-        h.insert(Property::ResponseInformation as u8, "Response Information");
-        h.insert(Property::ServerReference as u8, "Server Reference");
-        h.insert(Property::ReasonString as u8, "Reason String");
-        h.insert(Property::ReceiveMaximum as u8, "Receive Maximum");
-        h.insert(Property::TopicAliasMaximum as u8, "Topic Alias Maximum");
-        h.insert(Property::TopicAlias as u8, "Topic Alias");
-        h.insert(Property::MaximumQos as u8, "Maximum QoS");
-        h.insert(Property::RetainAvailable as u8, "Retain Available");
-        h.insert(Property::User as u8, "User Property");
-        h.insert(Property::MaximumPacketSize as u8, "Maximum Packet Size");
-        h.insert(
-            Property::WildcardSubscriptionAvailable as u8,
-            "Wildcard Subscription Available",
+            PropertyIdentifierConstant::ResponseTopic as u8,
+            String::from("Response Topic"),
         );
         h.insert(
-            Property::SubscriptionIdentifierAvailable as u8,
-            "Subscription Identifier Available",
+            PropertyIdentifierConstant::CorrelationData as u8,
+            String::from("Correlation Data"),
         );
         h.insert(
-            Property::SharedSubscriptionAvailable as u8,
-            "Shared Subscription Available",
+            PropertyIdentifierConstant::SubscriptionIdentifier as u8,
+            String::from("Subscription Identifier"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::SessionExpiryInterval as u8,
+            String::from("Session Expiry Interval"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::AssignedClientIdentifier as u8,
+            String::from("Assigned Client Identifier"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::ServerKeepAlive as u8,
+            String::from("Server Keep Alive"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::AuthenticationMethod as u8,
+            String::from("Authentication Method"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::AuthenticationData as u8,
+            String::from("Authentication Data"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::RequestProblemInformation as u8,
+            String::from("Request Problem Information"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::WillDelayInterval as u8,
+            String::from("Will Delay Interval"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::RequestResponseInformation as u8,
+            String::from("Request Response Information"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::ResponseInformation as u8,
+            String::from("Response Information"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::ServerReference as u8,
+            String::from("Server Reference"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::ReasonString as u8,
+            String::from("Reason String"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::ReceiveMaximum as u8,
+            String::from("Receive Maximum"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::TopicAliasMaximum as u8,
+            String::from("Topic Alias Maximum"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::TopicAlias as u8,
+            String::from("Topic Alias"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::MaximumQos as u8,
+            String::from("Maximum QoS"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::RetainAvailable as u8,
+            String::from("Retain Available"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::User as u8,
+            String::from("User Property"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::MaximumPacketSize as u8,
+            String::from("Maximum Packet Size"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::WildcardSubscriptionAvailable as u8,
+            String::from("Wildcard Subscription Available"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::SubscriptionIdentifierAvailable as u8,
+            String::from("Subscription Identifier Available"),
+        );
+        h.insert(
+            PropertyIdentifierConstant::SharedSubscriptionAvailable as u8,
+            String::from("Shared Subscription Available"),
         );
         h
     };
@@ -102,12 +150,6 @@ lazy_static! {
         PropertyIdentifierConstant::WillDelayInterval,
     )];
 }
-
-// Property::PayloadFormatIndicator,
-// Property::MessageExpiryInterval,
-// Property::ContentType,
-// Property::ResponseTopic,
-// Property::CorrelationData,
 
 lazy_static! {
     static ref VALIDPROPERTYCODES: HashMap<PacketTypes, Vec<PropertyIdentifier>> = {
@@ -423,9 +465,7 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
         trace!("read property is {property_identifier}");
 
         let p = match property_identifier {
-            // prop if PropertyIdentifierConstant::PayloadFormatIndicator as u8 == prop => {
             prop if 0x01 == prop => {
-                trace!("Property identifier is PayloadFormatIndicator");
                 let val = Byte(sub_b.get_u8());
                 Property::PayloadFormatIndicator(val)
             }
@@ -435,28 +475,20 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
             }
 
             prop if PropertyIdentifierConstant::ContentType as u8 == prop => {
-                let str = utf8_string(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let p_name = (*PROPERTYNAME.get(&prop).unwrap()).clone();
+                let str = utf8_string(p_name, &mut sub_b)?;
 
                 Property::ContentType(Utf8EncodedString(str))
             }
 
             prop if PropertyIdentifierConstant::ResponseTopic as u8 == prop => {
-                let str = utf8_string(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let str = utf8_string((*PROPERTYNAME.get(&prop).unwrap()).clone(), &mut sub_b)?;
 
                 Property::ContentType(Utf8EncodedString(str))
             }
 
             prop if PropertyIdentifierConstant::CorrelationData as u8 == prop => {
-                let binary_data = binary(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let binary_data = binary((*PROPERTYNAME.get(&prop).unwrap()).clone(), &mut sub_b)?;
 
                 Property::CorrelationData(binary_data)
             }
@@ -471,10 +503,7 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
             }
 
             prop if PropertyIdentifierConstant::AssignedClientIdentifier as u8 == prop => {
-                let str = utf8_string(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let str = utf8_string((*PROPERTYNAME.get(&prop).unwrap()).clone(), &mut sub_b)?;
 
                 Property::AssignedClientIdentifier(Utf8EncodedString(str))
             }
@@ -484,18 +513,12 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
             }
 
             prop if PropertyIdentifierConstant::AuthenticationMethod as u8 == prop => {
-                let str = utf8_string(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let str = utf8_string((*PROPERTYNAME.get(&prop).unwrap()).clone(), &mut sub_b)?;
                 Property::AuthenticationMethod(Utf8EncodedString(str))
             }
 
             prop if PropertyIdentifierConstant::AuthenticationData as u8 == prop => {
-                let binary_data = binary(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let binary_data = binary((*PROPERTYNAME.get(&prop).unwrap()).clone(), &mut sub_b)?;
 
                 Property::AuthenticationData(binary_data)
             }
@@ -513,26 +536,17 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
             }
 
             prop if PropertyIdentifierConstant::ResponseInformation as u8 == prop => {
-                let str = utf8_string(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let str = utf8_string((*PROPERTYNAME.get(&prop).unwrap()).clone(), &mut sub_b)?;
                 Property::ResponseInformation(Utf8EncodedString(str))
             }
 
             prop if PropertyIdentifierConstant::ServerReference as u8 == prop => {
-                let str = utf8_string(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let str = utf8_string((*PROPERTYNAME.get(&prop).unwrap()).clone(), &mut sub_b)?;
                 Property::ServerReference(Utf8EncodedString(str))
             }
 
             prop if PropertyIdentifierConstant::ReasonString as u8 == prop => {
-                let str = utf8_string(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let str = utf8_string((*PROPERTYNAME.get(&prop).unwrap()).clone(), &mut sub_b)?;
                 Property::ReasonString(Utf8EncodedString(str))
             }
 
@@ -556,10 +570,9 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
             }
 
             prop if PropertyIdentifierConstant::User as u8 == prop => {
-                let utf8_string_pair = decode_utf8_string_pair(
-                    String::from(*PROPERTYNAME.get(&property_identifier).to_owned().unwrap()),
-                    &mut sub_b,
-                )?;
+                let prop_name = (*PROPERTYNAME.get(&prop).unwrap()).clone();
+
+                let utf8_string_pair = decode_utf8_string_pair(prop_name, &mut sub_b)?;
                 Property::User(utf8_string_pair)
             }
 
@@ -585,6 +598,16 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
     }
 
     Ok(p_vec)
+}
+
+pub fn decode_property(bytes: &mut BytesMut) -> Option<Vec<Property>> {
+    let p = property(bytes).unwrap();
+
+    if !p.is_empty() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

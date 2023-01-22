@@ -14,7 +14,7 @@ pub mod subscribe;
 pub mod unsuback;
 pub mod unsubscribe;
 
-use bytes::BytesMut;
+use bytes::{BufMut, BytesMut};
 mod error {
     use crate::mqttbroker::properties::{Property, PropertyIdentifier};
     use std::collections::HashMap;
@@ -33,19 +33,38 @@ mod error {
     }
 }
 
-pub trait BuilderLifecycle<T> {
+pub trait BuilderLifecycle<T, E> {
     fn new() -> Self;
-    fn build(self) -> anyhow::Result<T>;
+    fn build(self) -> Result<T, E>;
 }
 
 pub trait GeneratePacketParts {
-    fn generate_fixed_header(&self, fixed_header_remaining_length: usize) -> BytesMut;
+    //fn generate_fixed_header(&self, fixed_header_remaining_length: usize) -> BytesMut;
+
+    fn generate_fixed_header(
+        packet_type: u8,
+        packet_type_low_nibble: u8,
+        fixed_header_remaining_length: usize,
+    ) -> BytesMut {
+        let mut fixed_header = BytesMut::with_capacity(5);
+
+        fixed_header = encode_fixed_header(
+            fixed_header,
+            packet_type,
+            packet_type_low_nibble,
+            fixed_header_remaining_length,
+        );
+
+        fixed_header
+    }
+
     fn generate_variable_header(&self) -> BytesMut;
     fn generate_payload(&self) -> BytesMut;
 }
 
-use crate::mqttbroker::packets::connect::Connect;
+use crate::encode::variable_byte_integer;
 use crate::mqttbroker::packets::error::PropertyError;
+use crate::mqttbroker::primitive_types::VariableByteInteger;
 use crate::mqttbroker::properties::{invalid_property_for_packet_type, non_unique, Property};
 use thiserror::Error;
 use tracing::trace;
@@ -80,7 +99,7 @@ pub mod properties {
     };
     use std::collections::HashMap;
 
-    #[derive(Default)]
+    #[derive(Default, Debug, PartialEq, Eq, Clone)]
     pub struct ConnectProperties {
         property_map: HashMap<u8, PropertyContainer>,
     }
@@ -88,7 +107,7 @@ pub mod properties {
     macro_rules! create_property_struct {
                 ($($struc:ident),*) => {
                     $(
-                        #[derive(Default)]
+                        #[derive(Default, Debug, PartialEq, Eq, Clone)]
                         pub struct $struc {
                             property_map: HashMap<u8, PropertyContainer>,
                         }
@@ -430,6 +449,7 @@ pub mod properties {
         }
     }
 
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum PropertyContainer {
         FourByteInteger(FourByteInteger),
         UTF8EncodeString(Utf8EncodedString),
@@ -528,36 +548,118 @@ mod properties_test {
 // }
 
 // Can use this from all the packets
-pub fn encode_properties(props: &Option<Vec<Property>>) -> Vec<u8> {
+fn encode_properties_to_vec(props: &Option<Vec<Property>>) -> Vec<u8> {
     let mut properties_vec: Vec<u8> = Vec::with_capacity(200);
-    if props.is_some() {
-        for prop_item in props.as_ref().unwrap() {
-            prop_item.encode(&mut properties_vec);
+
+    if props.is_none() {
+        properties_vec = vec![]
+    } else {
+        if props.is_some() {
+            for prop_item in props.as_ref().unwrap() {
+                prop_item.encode(&mut properties_vec);
+            }
         }
     }
 
     properties_vec
 }
 
+fn prepend_size_to_properties(properties: Vec<u8>, mut variable_header: BytesMut) -> BytesMut {
+    let mut encoded_variable_header_properties_size: BytesMut = BytesMut::with_capacity(4);
+    variable_byte_integer(
+        "variable header properties size",
+        &VariableByteInteger::new(properties.len() as u32),
+        &mut encoded_variable_header_properties_size,
+    )
+    .unwrap();
+    variable_header.put_slice(encoded_variable_header_properties_size.iter().as_slice());
+    variable_header.put_slice(properties.as_slice());
+
+    variable_header
+}
+
+pub fn encode_properties(
+    mut variable_header: BytesMut,
+    variable_header_properties: &Option<Vec<Property>>,
+) -> BytesMut {
+    let encoded_variable_header_properties = if variable_header_properties.is_none() {
+        vec![]
+    } else {
+        encode_properties_to_vec(variable_header_properties)
+    };
+
+    variable_header =
+        prepend_size_to_properties(encoded_variable_header_properties, variable_header);
+
+    variable_header
+}
+
+pub fn encode_fixed_header(
+    mut fixed_header: BytesMut,
+    packet_type: u8,
+    packet_type_flags: u8,
+    fixed_header_remaining_length: usize,
+) -> BytesMut {
+    let pt = (packet_type << 4) + (packet_type_flags & 0x0f);
+
+    fixed_header.put_u8(pt);
+    // need to capture error here.
+    variable_byte_integer(
+        "remaining length",
+        &VariableByteInteger::new(fixed_header_remaining_length as u32),
+        &mut fixed_header,
+    )
+    .unwrap();
+
+    fixed_header
+}
+
 #[cfg(test)]
 mod encode_test {
-    use crate::mqttbroker::packets::connect::Builder;
+    use crate::mqttbroker::packets::connect::ConnectBuilder;
     use crate::mqttbroker::packets::BuilderLifecycle;
 
     #[test]
     pub fn will_properties_not_set() {
-        let packet = Builder::new();
+        let packet = ConnectBuilder::new();
 
         assert!(!packet.packet.will_flag())
     }
 }
 
-pub trait Decoder<T, E> {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<Connect>;
+pub trait Decoder<T> {
+    fn decode(bytes: &mut BytesMut) -> anyhow::Result<T>;
 }
 
-pub trait Encoder<E> {
-    fn encode(&self) -> anyhow::Result<BytesMut>;
+// pub trait Encoder<T: GeneratePacketParts, E> {
+//     fn encode(&self) -> anyhow::Result<BytesMut>;
+// }
+
+pub trait Encoder<T: GeneratePacketParts> {
+    //fn encode(&self) -> anyhow::Result<BytesMut>;
+    fn encode(
+        packet_type: u8,
+        packet_type_low_nibble: u8,
+        generated_packet_parts: &impl GeneratePacketParts,
+    ) -> anyhow::Result<BytesMut> {
+        let variable_header = generated_packet_parts.generate_variable_header();
+
+        let payload = generated_packet_parts.generate_payload();
+
+        let fixed_header_remaining_length = variable_header.len() + payload.len();
+        let mut connack_packet = BytesMut::with_capacity(fixed_header_remaining_length + 1 + 4);
+        let fixed_header = T::generate_fixed_header(
+            packet_type,
+            packet_type_low_nibble,
+            fixed_header_remaining_length,
+        );
+
+        connack_packet.put(fixed_header);
+        connack_packet.put(variable_header);
+        connack_packet.put(payload);
+
+        Ok(connack_packet)
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
@@ -581,7 +683,19 @@ pub enum PacketTypes {
 }
 
 pub mod reason_codes {
+    use thiserror::Error;
 
+    #[derive(Error, Debug, PartialEq, Eq)]
+    pub enum ReasonCodeError {
+        #[error("Invalid reason code '{0}' for packet type '{1}'")]
+        InvalidReasonCode(u8, String),
+    }
+
+    pub trait DecodeReasonCode<T, E> {
+        fn decode(reason_code: u8) -> Result<T, E>;
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum CONNECTACK {
         Success = 0x00,
@@ -608,6 +722,45 @@ pub mod reason_codes {
         ConnectionRateExceeded = 0x9F,
     }
 
+    impl DecodeReasonCode<CONNECTACK, ReasonCodeError> for CONNECTACK {
+        fn decode(reason_code: u8) -> Result<CONNECTACK, ReasonCodeError> {
+            let ret = match reason_code {
+                0u8 => CONNECTACK::Success,
+                0x80 => CONNECTACK::UnspecifiedError,
+                0x81 => CONNECTACK::MalformedPacket,
+                0x82 => CONNECTACK::ProtocolError,
+                0x83 => CONNECTACK::ImplementationSpecificError,
+                0x84 => CONNECTACK::UnsupportedProtocolVersion,
+                0x85 => CONNECTACK::ClientIdentifierNotValid,
+                0x86 => CONNECTACK::BadUserNameOrPassword,
+                0x87 => CONNECTACK::NotAuthorised,
+                0x88 => CONNECTACK::ServerUnavailable,
+                0x89 => CONNECTACK::ServerBusy,
+                0x8A => CONNECTACK::Banned,
+                0x8c => CONNECTACK::BadAuthenticationMethod,
+                0x90 => CONNECTACK::TopicNameInvalid,
+                0x95 => CONNECTACK::PacketTooLarge,
+                0x97 => CONNECTACK::QuotaExceeded,
+                0x99 => CONNECTACK::PayloadFormatInvalid,
+                0x9A => CONNECTACK::RetainNotSupported,
+                0x9B => CONNECTACK::QosNotSupported,
+                0x9C => CONNECTACK::UseAnotherServer,
+                0x9D => CONNECTACK::ServerMoved,
+                0x9F => CONNECTACK::ConnectionRateExceeded,
+
+                n => {
+                    return Err(ReasonCodeError::InvalidReasonCode(
+                        n,
+                        String::from("CONNECTACK"),
+                    ))
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum PUBACK {
         Success = 0x00,
@@ -621,6 +774,31 @@ pub mod reason_codes {
         PayloadFormatInvalid = 0x99,
     }
 
+    impl DecodeReasonCode<PUBACK, ReasonCodeError> for PUBACK {
+        fn decode(reason_code: u8) -> Result<PUBACK, ReasonCodeError> {
+            let ret = match reason_code {
+                0x00 => PUBACK::Success,
+                0x10 => PUBACK::NoMatchingSubscribers,
+                0x80 => PUBACK::UnspecifiedError,
+                0x83 => PUBACK::ImplementationSpecificError,
+                0x87 => PUBACK::NotAuthorized,
+                0x90 => PUBACK::TopicNameInvalid,
+                0x91 => PUBACK::PacketIdentifierInUse,
+                0x97 => PUBACK::QuotaExceeded,
+                0x99 => PUBACK::PayloadFormatInvalid,
+                n => {
+                    return Err(ReasonCodeError::InvalidReasonCode(
+                        n,
+                        String::from("PUBACK"),
+                    ))
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum PUBREC {
         Success = 0x00,
@@ -634,18 +812,79 @@ pub mod reason_codes {
         PayloadFormatInvalid = 0x99,
     }
 
+    impl DecodeReasonCode<PUBREC, ReasonCodeError> for PUBREC {
+        fn decode(reason_code: u8) -> Result<PUBREC, ReasonCodeError> {
+            let ret = match reason_code {
+                0x00 => PUBREC::Success,
+                0x10 => PUBREC::NoMatchingSubscribers,
+                0x80 => PUBREC::UnspecifiedError,
+                0x83 => PUBREC::ImplementationSpecificError,
+                0x87 => PUBREC::NotAuthorized,
+                0x90 => PUBREC::TopicNameInvalid,
+                0x91 => PUBREC::PacketIdentifierInUse,
+                0x97 => PUBREC::QuotaExceed,
+                0x99 => PUBREC::PayloadFormatInvalid,
+                n => {
+                    return Err(ReasonCodeError::InvalidReasonCode(
+                        n,
+                        String::from("PUBREC"),
+                    ))
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum PUBREL {
         Success = 0x00,
         PacketIdentifierNotFound = 0x92,
     }
 
+    impl DecodeReasonCode<PUBREL, ReasonCodeError> for PUBREL {
+        fn decode(reason_code: u8) -> Result<PUBREL, ReasonCodeError> {
+            let ret = match reason_code {
+                0x00 => PUBREL::Success,
+                0x92 => PUBREL::PacketIdentifierNotFound,
+                n => {
+                    return Err(ReasonCodeError::InvalidReasonCode(
+                        n,
+                        String::from("PUBREL"),
+                    ))
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum PUBCOMP {
         Success = 0x00,
         PacketIdentifierNotFound = 0x92,
     }
 
+    impl DecodeReasonCode<PUBCOMP, ReasonCodeError> for PUBCOMP {
+        fn decode(reason_code: u8) -> Result<PUBCOMP, ReasonCodeError> {
+            let ret = match reason_code {
+                0x00 => PUBCOMP::Success,
+                0x92 => PUBCOMP::PacketIdentifierNotFound,
+                n => {
+                    return Err(ReasonCodeError::InvalidReasonCode(
+                        n,
+                        String::from("PUBCOMP"),
+                    ))
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum DISCONNECT {
         NormalDisconnection = 0x00,
@@ -679,6 +918,51 @@ pub mod reason_codes {
         WildcardSubscriptionsNotSupported = 0xa2,
     }
 
+    impl DecodeReasonCode<DISCONNECT, ReasonCodeError> for DISCONNECT {
+        fn decode(reason_code: u8) -> Result<DISCONNECT, ReasonCodeError> {
+            let ret = match reason_code {
+                0x00 => DISCONNECT::NormalDisconnection,
+                0x04 => DISCONNECT::DisconnectWithWillMessage,
+                0x80 => DISCONNECT::UnspecifiedError,
+                0x81 => DISCONNECT::MalformedPacket,
+                0x82 => DISCONNECT::ProtocolError,
+                0x83 => DISCONNECT::ImplementationSpecificError,
+                0x87 => DISCONNECT::NotAuthorized,
+                0x89 => DISCONNECT::ServerBusy,
+                0x8b => DISCONNECT::ServerShuttingDown,
+                0x8e => DISCONNECT::KeepAliveTimeout,
+                0x8f => DISCONNECT::SessionTakenOver,
+                0x90 => DISCONNECT::TopicFilterInvalid,
+                0x93 => DISCONNECT::ReceiveMaximumExceed,
+                0x94 => DISCONNECT::TopicAliasInvalid,
+                0x95 => DISCONNECT::PacketTooLarge,
+                0x96 => DISCONNECT::MessageRateTooHigh,
+                0x97 => DISCONNECT::QuotaExceeded,
+                0x98 => DISCONNECT::AdministrativeAction,
+                0x99 => DISCONNECT::PayloadFormatInvalid,
+                0x9a => DISCONNECT::RetainNotSupported,
+                0x9b => DISCONNECT::QOSNotSupported,
+                0x9c => DISCONNECT::UseAnotherServer,
+                0x9d => DISCONNECT::ServerMoved,
+                0x9e => DISCONNECT::SharedSubscriptionsNotSupported,
+                0x9f => DISCONNECT::ConnectionRateExceeded,
+                0xa0 => DISCONNECT::MaximumConnectTime,
+                0xa1 => DISCONNECT::SubscriptionIdentifiersNotSupported,
+                0xa2 => DISCONNECT::WildcardSubscriptionsNotSupported,
+
+                n => {
+                    return Err(ReasonCodeError::InvalidReasonCode(
+                        n,
+                        String::from("DISCONNECT"),
+                    ))
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum AUTH {
         Success = 0x00,
@@ -686,6 +970,19 @@ pub mod reason_codes {
         ReAuthenticate = 0x19,
     }
 
+    impl DecodeReasonCode<AUTH, ReasonCodeError> for AUTH {
+        fn decode(reason_code: u8) -> Result<AUTH, ReasonCodeError> {
+            let ret = match reason_code {
+                0x00 => AUTH::Success,
+                0x18 => AUTH::ContinueAuthentication,
+                0x19 => AUTH::ReAuthenticate,
+                n => return Err(ReasonCodeError::InvalidReasonCode(n, String::from("AUTH"))),
+            };
+            Ok(ret)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum UNSUBACK {
         Success = 0x99,
@@ -697,6 +994,28 @@ pub mod reason_codes {
         PacketIdentifierInUse = 0x91,
     }
 
+    impl DecodeReasonCode<UNSUBACK, ReasonCodeError> for UNSUBACK {
+        fn decode(reason_code: u8) -> Result<UNSUBACK, ReasonCodeError> {
+            let ret = match reason_code {
+                0x99 => UNSUBACK::Success,
+                0x11 => UNSUBACK::NoSubscriptionExisted,
+                0x80 => UNSUBACK::UnspecifiedError,
+                0x83 => UNSUBACK::ImplementationSpecificError,
+                0x87 => UNSUBACK::NotAuthorized,
+                0x91 => UNSUBACK::PacketIdentifierInUse,
+                n => {
+                    return Err(ReasonCodeError::InvalidReasonCode(
+                        n,
+                        String::from("UNSUBACK"),
+                    ))
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
     #[repr(u8)]
     pub enum SUBACK {
         GrantedQos0 = 0x00,
@@ -711,6 +1030,33 @@ pub mod reason_codes {
         SharedSubscriptionsNotSupported = 0x9e,
         SubscriptionIdentifiersNotSupported = 0xa1,
         WildcardSubscriptionsNotSupported = 0xa2,
+    }
+
+    impl DecodeReasonCode<SUBACK, ReasonCodeError> for SUBACK {
+        fn decode(reason_code: u8) -> Result<SUBACK, ReasonCodeError> {
+            let ret = match reason_code {
+                0x00 => SUBACK::GrantedQos0,
+                0x01 => SUBACK::GrantedQos1,
+                0x02 => SUBACK::GrantedQos2,
+                0x80 => SUBACK::UnspecifiedError,
+                0x83 => SUBACK::ImplementationSpecificError,
+                0x87 => SUBACK::NotAuthorized,
+                0x8f => SUBACK::TopicFilterInvalid,
+                0x91 => SUBACK::PacketIdentifierInUse,
+                0x97 => SUBACK::QuotaExceeded,
+                0x9e => SUBACK::SharedSubscriptionsNotSupported,
+                0xa1 => SUBACK::SubscriptionIdentifiersNotSupported,
+                0xa2 => SUBACK::WildcardSubscriptionsNotSupported,
+                n => {
+                    return Err(ReasonCodeError::InvalidReasonCode(
+                        n,
+                        String::from("SUBACK"),
+                    ))
+                }
+            };
+
+            Ok(ret)
+        }
     }
 }
 

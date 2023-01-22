@@ -9,8 +9,8 @@ edition = "2018"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 bytes = "1.0"
-anyhow = "1.0"
 thiserror = "1.0"
+anyhow = "1.0"
 lazy_static = "1.4.0"
 test-case = "2.1.0"
 tracing = "0.1"

@@ -3,4 +3,17 @@
 members = [
     "deser",
     "broker",
+    "client"
 ]
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+bytes = "1.0"
+thiserror = "1.0"
+anyhow = "1.0"
+lazy_static = "1.4.0"
+test-case = "2.1.0"
+tracing = "0.1"
+tracing-subscriber = {version = "0.3", features =["env-filter","fmt"]}
+paste = "1.0.9"
+pretty-hex = "0.3.0"

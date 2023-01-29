@@ -3,10 +3,26 @@ name = "broker"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "MQTTBroker"
+path = "src/main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+tokio.workspace = true
+bytes.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+lazy_static.workspace = true
+test-case.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+paste.workspace = true
+pretty-hex.workspace = true
 
-tokio = { version = "1.24.2", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
+[dev-dependencies]
+quickcheck = "1"
+quickcheck_macros = "1"
+mockall = "0.11"
+test-log = {version="0.2", default-features=false, features=["trace"]}

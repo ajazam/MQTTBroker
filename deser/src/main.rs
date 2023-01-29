@@ -1,7 +1,6 @@
 mod decode;
 mod encode;
 mod mqttbroker;
-mod server;
 
 #[cfg(test)]
 #[macro_use(quickcheck)]

@@ -1,4 +1,4 @@
-use crate::mqttbroker::primitive_types::{FourByteInteger, TwoByteInteger, VariableByteInteger};
+use crate::primitive_types::{FourByteInteger, TwoByteInteger, VariableByteInteger};
 use bytes::{BufMut, BytesMut};
 use thiserror::Error;
 use tracing::trace;
@@ -76,7 +76,7 @@ pub fn utf8_string_pair(
 mod test {
     use crate::encode;
     use crate::encode::EncodeError;
-    use crate::mqttbroker::primitive_types::VariableByteInteger;
+    use crate::primitive_types::VariableByteInteger;
     use bytes::{Buf, BytesMut};
 
     #[test]

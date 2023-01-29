@@ -1,6 +1,8 @@
 mod decode;
 mod encode;
-mod mqttbroker;
+pub mod packets;
+pub mod primitive_types;
+pub mod properties;
 
 #[cfg(test)]
 #[macro_use(quickcheck)]

@@ -1,5 +1,5 @@
 use crate::decode::DecodeError::UTF8Errors;
-use crate::mqttbroker::packets::PacketTypes;
+use crate::packets::PacketTypes;
 use bytes::{Buf, BytesMut};
 use std::collections::HashMap;
 use thiserror::Error;
@@ -293,12 +293,11 @@ lazy_static! {
         vpc
     };
 }
-use crate::mqttbroker::primitive_types::{
+use crate::primitive_types::{
     BinaryData, Byte, FourByteInteger, TwoByteInteger, Utf8EncodedString, Utf8StringPair,
     VariableByteInteger,
 };
-use crate::mqttbroker::properties::PropertyIdentifier;
-use crate::mqttbroker::properties::{Property, PropertyIdentifierConstant};
+use crate::properties::{Property, PropertyIdentifier, PropertyIdentifierConstant};
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum DecodeError {
@@ -612,18 +611,19 @@ pub fn decode_property(bytes: &mut BytesMut) -> Option<Vec<Property>> {
 
 #[cfg(test)]
 mod test {
-    use crate::mqttbroker::packets::PacketTypes;
+    use crate::packets::PacketTypes;
     use std::collections::HashMap;
 
     use crate::decode::{binary, decode_utf8_string_pair, varint, DecodeError};
     use crate::encode::{binary_data, utf8_encoded_string, variable_byte_integer, EncodeError};
 
-    use crate::mqttbroker::primitive_types::{
+    use crate::primitive_types::{
         BinaryData, Byte, FourByteInteger, TwoByteInteger, Utf8EncodedString, Utf8StringPair,
         VariableByteInteger,
     };
-    use crate::mqttbroker::properties::{
-        invalid_property_for_packet_type, non_unique, Property, PropertyIdentifier,
+    use crate::properties::Property;
+    use crate::properties::{
+        invalid_property_for_packet_type, non_unique, PropertyIdentifier,
         PropertyIdentifierConstant,
     };
     use crate::{decode, encode};

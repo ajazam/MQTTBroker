@@ -1,9 +1,10 @@
 use crate::decode::DecodeError::UTF8Errors;
 use crate::packets::PacketTypes;
 use bytes::{Buf, BytesMut};
+use lazy_static::lazy_static;
 use std::collections::HashMap;
 use thiserror::Error;
-use tracing::{debug, trace};
+use tracing::trace;
 
 lazy_static! {
     static ref PROPERTYNAME: HashMap<u8, String> = {

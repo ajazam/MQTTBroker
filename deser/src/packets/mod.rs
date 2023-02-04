@@ -1059,7 +1059,7 @@ pub mod reason_codes {
     }
 }
 
-trait Properties {
+pub trait Properties {
     fn packet_type(&self) -> PacketTypes;
     fn packet_type_string(&self) -> String;
     fn variable_header_properties(&self) -> &Option<Vec<Property>>;

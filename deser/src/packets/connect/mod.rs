@@ -2,19 +2,10 @@ pub mod builder;
 mod deser;
 mod validation;
 
-use crate::decode::{binary, decode_property, property, utf8_string, varint};
-use crate::encode::{utf8_encoded_string, variable_byte_integer};
 use crate::packets::connect::builder::ConnectBuilder;
-use crate::packets::{
-    connect_flags, encode_properties, encode_properties_to_vec, BuilderLifecycle, Decoder, Encoder,
-    GeneratePacketParts, PacketTypes, Properties,
-};
-use crate::primitive_types::VariableByteInteger;
-use crate::properties::{invalid_property, non_unique, valid_properties_for_will, Property};
-use bytes::{Buf, BufMut, BytesMut};
-use pretty_hex::*;
-use std::io::Error;
-use tracing::trace;
+use crate::packets::{connect_flags, PacketTypes};
+
+use crate::properties::Property;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Connect {
@@ -97,12 +88,9 @@ pub mod test {
     use crate::packets::error::PropertyError;
     use crate::packets::{BuilderLifecycle, Decoder, Encoder, Properties};
     use crate::primitive_types::{Byte, FourByteInteger};
-    use crate::properties::{Property, PropertyIdentifier};
+    use crate::properties::Property;
     use pretty_hex::*;
-    use std::collections::HashSet;
-    use std::iter::FromIterator;
-    use tracing::{trace, Level};
-    use tracing_subscriber::FmtSubscriber;
+    use tracing::trace;
 
     #[test]
     fn should_have_valid_variable_header_properties_for_connect_packet() {

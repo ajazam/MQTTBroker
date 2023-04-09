@@ -2,11 +2,12 @@ use crate::decode::varint;
 use crate::packets::pingreq::PingReq;
 use crate::packets::{Decoder, Encoder};
 use bytes::{Buf, BytesMut};
+use std::error::Error;
 
 impl Encoder<PingReq> for PingReq {}
 
 impl Decoder<PingReq> for PingReq {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<PingReq> {
+    fn decode(bytes: &mut BytesMut) -> Result<PingReq, Box<dyn Error + Send + Sync>> {
         // fixed header
         let packet_with_flags = bytes.get_u8();
         let packet_type = packet_with_flags >> 4;

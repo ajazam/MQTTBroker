@@ -3,6 +3,7 @@ use crate::packets::puback::PubAck;
 use crate::packets::reason_codes::{DecodeReasonCode, PUBACK};
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for PubAck {
     fn generate_variable_header(&self) -> BytesMut {
@@ -27,7 +28,7 @@ impl GeneratePacketParts for PubAck {
 impl Encoder<PubAck> for PubAck {}
 
 impl Decoder<PubAck> for PubAck {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<PubAck> {
+    fn decode(bytes: &mut BytesMut) -> Result<PubAck, Box<dyn Error + Send + Sync>> {
         // fixed header
         let packet_type_with_flags = bytes.get_u8();
         let packet_type = packet_type_with_flags >> 4;

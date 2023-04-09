@@ -16,6 +16,7 @@ pub mod unsuback;
 pub mod unsubscribe;
 
 use bytes::{BufMut, BytesMut};
+use std::error::Error;
 mod error {
     use crate::properties::{Property, PropertyIdentifier};
     use std::collections::HashMap;
@@ -627,7 +628,7 @@ mod encode_test {
 }
 
 pub trait Decoder<T> {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<T>;
+    fn decode(bytes: &mut BytesMut) -> Result<T, Box<dyn Error + Send + Sync>>;
 }
 
 // pub trait Encoder<T: GeneratePacketParts, E> {
@@ -640,7 +641,7 @@ pub trait Encoder<T: GeneratePacketParts> {
         packet_type: u8,
         packet_type_low_nibble: u8,
         generated_packet_parts: &impl GeneratePacketParts,
-    ) -> anyhow::Result<BytesMut> {
+    ) -> Result<BytesMut, Box<dyn Error + Send + Sync>> {
         let variable_header = generated_packet_parts.generate_variable_header();
 
         let payload = generated_packet_parts.generate_payload();

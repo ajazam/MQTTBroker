@@ -61,7 +61,7 @@ mod test {
 
         let built_packet = original_packet.build().unwrap();
 
-        let mut serialized_packet = Connect::encode(
+        let serialized_packet = Connect::encode(
             built_packet.packet_type,
             built_packet.packet_type_low_nibble,
             &built_packet,

@@ -3,6 +3,7 @@ use crate::encode::utf8_encoded_string;
 use crate::packets::unsubscribe::UnSubscribe;
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for UnSubscribe {
     fn generate_variable_header(&self) -> BytesMut {
@@ -28,7 +29,7 @@ impl GeneratePacketParts for UnSubscribe {
 impl Encoder<UnSubscribe> for UnSubscribe {}
 
 impl Decoder<UnSubscribe> for UnSubscribe {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<UnSubscribe> {
+    fn decode(bytes: &mut BytesMut) -> Result<UnSubscribe, Box<dyn Error + Send + Sync>> {
         let packet_type_with_flags = bytes.get_u8();
         let packet_type = packet_type_with_flags >> 4;
         let packet_type_low_nibble = packet_type_with_flags & 0x0f;

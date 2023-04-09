@@ -9,13 +9,13 @@ use crate::properties::Property;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Auth {
     //fixed header
-    packet_type: u8,
+    pub packet_type: u8,
 
-    packet_type_low_nibble: u8,
+    pub packet_type_low_nibble: u8,
 
     // variable header
-    reason_code: AUTH,
-    variable_header_properties: Option<Vec<Property>>,
+    pub reason_code: AUTH,
+    pub variable_header_properties: Option<Vec<Property>>,
     //payload
     // no payload
 }

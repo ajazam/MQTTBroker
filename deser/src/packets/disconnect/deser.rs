@@ -3,6 +3,7 @@ use crate::packets::disconnect::Disconnect;
 use crate::packets::reason_codes::{DecodeReasonCode, DISCONNECT};
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for Disconnect {
     fn generate_variable_header(&self) -> BytesMut {
@@ -25,7 +26,7 @@ impl GeneratePacketParts for Disconnect {
 impl Encoder<Disconnect> for Disconnect {}
 
 impl Decoder<Disconnect> for Disconnect {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<Disconnect> {
+    fn decode(bytes: &mut BytesMut) -> Result<Disconnect, Box<dyn Error + Send + Sync>> {
         // fixed header
         let packet_with_flags = bytes.get_u8();
         let packet_type = packet_with_flags >> 4;

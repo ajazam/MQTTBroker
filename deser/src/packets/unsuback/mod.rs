@@ -9,15 +9,15 @@ use crate::properties::Property;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UnsubAck {
     //fixed header
-    packet_type: u8,
-    packet_type_low_nibble: u8,
+    pub packet_type: u8,
+    pub packet_type_low_nibble: u8,
 
     //variable header
-    packet_id: u16,
-    variable_header_properties: Option<Vec<Property>>,
+    pub packet_id: u16,
+    pub variable_header_properties: Option<Vec<Property>>,
 
     //payload
-    topic_filters: Vec<UNSUBACK>,
+    pub topic_filters: Vec<UNSUBACK>,
 }
 
 impl Default for UnsubAck {

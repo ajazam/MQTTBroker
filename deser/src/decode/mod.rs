@@ -314,10 +314,7 @@ pub enum DecodeError {
     UnknownProperty(u8),
 }
 
-pub fn two_byte_integer(
-    name: String,
-    b: &mut BytesMut,
-) -> anyhow::Result<TwoByteInteger, DecodeError> {
+pub fn two_byte_integer(name: String, b: &mut BytesMut) -> Result<TwoByteInteger, DecodeError> {
     if b.len() < 2 {
         Err(DecodeError::MoreBytesRequired(2, b.len() as u16, name))
     } else {
@@ -325,10 +322,7 @@ pub fn two_byte_integer(
     }
 }
 
-pub fn four_byte_integer(
-    name: String,
-    b: &mut BytesMut,
-) -> anyhow::Result<FourByteInteger, DecodeError> {
+pub fn four_byte_integer(name: String, b: &mut BytesMut) -> Result<FourByteInteger, DecodeError> {
     if b.len() < 4 {
         Err(DecodeError::MoreBytesRequired(4, b.len() as u16, name))
     } else {
@@ -336,7 +330,7 @@ pub fn four_byte_integer(
     }
 }
 
-pub fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, DecodeError> {
+pub fn utf8_string(name: String, b: &mut BytesMut) -> Result<String, DecodeError> {
     if b.len() < 2 {
         Err(DecodeError::NotEnoughBytes(name))
     } else {
@@ -360,7 +354,7 @@ pub fn utf8_string(name: String, b: &mut BytesMut) -> anyhow::Result<String, Dec
     }
 }
 
-pub fn binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryData, DecodeError> {
+pub fn binary(name: String, b: &mut BytesMut) -> Result<BinaryData, DecodeError> {
     if b.len() < 2 {
         Err(DecodeError::NotEnoughBytes(name))
     } else {
@@ -381,10 +375,7 @@ pub fn binary(name: String, b: &mut BytesMut) -> anyhow::Result<BinaryData, Deco
     }
 }
 
-fn decode_utf8_string_pair(
-    name: String,
-    b: &mut BytesMut,
-) -> anyhow::Result<Utf8StringPair, DecodeError> {
+fn decode_utf8_string_pair(name: String, b: &mut BytesMut) -> Result<Utf8StringPair, DecodeError> {
     let mut key: String = String::from("empty");
     let mut value: String = String::from("empty");
     let name_of_key = format!("key of {name}");
@@ -424,7 +415,7 @@ fn decode_utf8_string_pair(
     Ok(Utf8StringPair(key, value))
 }
 
-pub fn varint(b: &mut BytesMut) -> anyhow::Result<VariableByteInteger, DecodeError> {
+pub fn varint(b: &mut BytesMut) -> Result<VariableByteInteger, DecodeError> {
     let mut pos: usize = 0;
     let mut multiplier = 1u32;
     let mut value = 0u32;
@@ -449,7 +440,7 @@ pub fn varint(b: &mut BytesMut) -> anyhow::Result<VariableByteInteger, DecodeErr
     Ok(VariableByteInteger::new(value))
 }
 
-pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> {
+pub fn property(b: &mut BytesMut) -> Result<Vec<Property>, DecodeError> {
     trace!("decode property is {:?}", b);
     trace!("pre varint length is {}", b.len());
     let length = varint(b)?;
@@ -460,7 +451,7 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
     let mut p_vec: Vec<Property> = vec![];
     trace!("property length {}", length.as_ref());
 
-    while !sub_b.is_empty() {
+    while !sub_b.is_empty() && length.0 > 0 {
         let property_identifier = sub_b.get_u8();
         trace!("read property is {property_identifier}");
 
@@ -601,13 +592,18 @@ pub fn property(b: &mut BytesMut) -> anyhow::Result<Vec<Property>, DecodeError> 
 }
 
 pub fn decode_property(bytes: &mut BytesMut) -> Option<Vec<Property>> {
-    let p = property(bytes).unwrap();
+    let p = property(bytes);
+    let p = match p {
+        Ok(v) if !v.is_empty() => Some(v),
+        _ => None,
+    };
 
-    if !p.is_empty() {
-        Some(p)
-    } else {
-        None
-    }
+    // if !p.is_empty() {
+    //     Some(p)
+    // } else {
+    //     None
+    // }
+    p
 }
 
 #[cfg(test)]

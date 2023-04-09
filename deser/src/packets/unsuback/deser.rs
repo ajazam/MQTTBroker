@@ -3,6 +3,7 @@ use crate::packets::reason_codes::{DecodeReasonCode, UNSUBACK};
 use crate::packets::unsuback::UnsubAck;
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for UnsubAck {
     fn generate_variable_header(&self) -> BytesMut {
@@ -29,7 +30,7 @@ impl GeneratePacketParts for UnsubAck {
 impl Encoder<UnsubAck> for UnsubAck {}
 
 impl Decoder<UnsubAck> for UnsubAck {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<UnsubAck> {
+    fn decode(bytes: &mut BytesMut) -> Result<UnsubAck, Box<dyn Error + Send + Sync>> {
         let packet_type_with_flags = bytes.get_u8();
         let packet_type = packet_type_with_flags >> 4;
         let packet_type_low_nibble = packet_type_with_flags & 0x0f;

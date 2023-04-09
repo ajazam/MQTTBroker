@@ -89,7 +89,7 @@ pub mod test {
     use crate::packets::{BuilderLifecycle, Decoder, Encoder, Properties};
     use crate::primitive_types::{Byte, FourByteInteger};
     use crate::properties::Property;
-    use pretty_hex::*;
+    use nu_pretty_hex::*;
     use tracing::trace;
 
     #[test]

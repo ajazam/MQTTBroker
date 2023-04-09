@@ -3,6 +3,7 @@ use crate::encode::utf8_encoded_string;
 use crate::packets::publish::Publish;
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for Publish {
     fn generate_variable_header(&self) -> BytesMut {
@@ -37,7 +38,7 @@ impl GeneratePacketParts for Publish {
 impl Encoder<Publish> for Publish {}
 
 impl Decoder<Publish> for Publish {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<Publish> {
+    fn decode(bytes: &mut BytesMut) -> Result<Publish, Box<dyn Error + Send + Sync>> {
         let packet_type_with_flags = bytes.get_u8();
         let packet_type = packet_type_with_flags >> 4;
         let packet_type_low_nibble = packet_type_with_flags & 0x0f;

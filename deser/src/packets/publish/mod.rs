@@ -11,16 +11,16 @@ use bytes::{Buf, BufMut, BytesMut};
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Publish {
     //fixed header
-    packet_type: u8,
-    packet_type_low_nibble: u8,
+    pub packet_type: u8,
+    pub packet_type_low_nibble: u8,
 
     //variable_header
-    topic_name: String,
-    packet_id: Option<u16>,
-    variable_header_properties: Option<Vec<Property>>,
+    pub topic_name: String,
+    pub packet_id: Option<u16>,
+    pub variable_header_properties: Option<Vec<Property>>,
 
     //payload
-    application_message: Option<Vec<u8>>,
+    pub application_message: Option<Vec<u8>>,
 }
 
 impl Publish {
@@ -100,7 +100,7 @@ pub enum PublishError {
 #[cfg(test)]
 pub mod test {
     use crate::packets::publish::{Publish, Qos};
-    use pretty_hex::{pretty_hex, PrettyHex};
+    use nu_pretty_hex::{pretty_hex, PrettyHex};
 
     use crate::packets::publish::builder::PublishBuilder;
     use crate::packets::{BuilderLifecycle, Decoder, Encoder, Properties};

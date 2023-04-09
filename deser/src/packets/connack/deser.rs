@@ -2,6 +2,7 @@ use crate::decode::{decode_property, varint};
 use crate::packets::connack::ConnAck;
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for ConnAck {
     fn generate_variable_header(&self) -> BytesMut {
@@ -20,7 +21,7 @@ impl GeneratePacketParts for ConnAck {
 impl Encoder<ConnAck> for ConnAck {}
 
 impl Decoder<ConnAck> for ConnAck {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<ConnAck> {
+    fn decode(bytes: &mut BytesMut) -> Result<ConnAck, Box<dyn Error + Send + Sync>> {
         let packet_type_with_flags = bytes.get_u8();
         let packet_type = packet_type_with_flags >> 4;
         let packet_type_flags = packet_type_with_flags & 0x0f;

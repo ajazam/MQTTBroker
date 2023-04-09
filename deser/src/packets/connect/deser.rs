@@ -9,7 +9,8 @@ use crate::packets::{
 use crate::primitive_types::VariableByteInteger;
 use crate::properties::Property;
 use bytes::{Buf, BufMut, BytesMut};
-use pretty_hex::*;
+use nu_pretty_hex::*;
+use std::error::Error;
 use tracing::trace;
 
 impl GeneratePacketParts for Connect {
@@ -98,7 +99,7 @@ impl GeneratePacketParts for Connect {
 impl Encoder<Connect> for Connect {}
 
 impl Decoder<Connect> for Connect {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<Connect> {
+    fn decode(bytes: &mut BytesMut) -> Result<Connect, Box<dyn Error + Send + Sync>> {
         // checks are required here
         trace!("start of decode ---");
         trace!("start decoding. hex is {:?}", pretty_hex(bytes));

@@ -9,13 +9,13 @@ use crate::properties::Property;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ConnAck {
     //fixed header
-    packet_type: u8,
-    packet_type_low_nibble: u8,
+    pub packet_type: u8,
+    pub packet_type_low_nibble: u8,
 
     // variable header
-    connect_ack_flags: u8,
-    connect_reason_code: u8,
-    variable_header_properties: Option<Vec<Property>>,
+    pub connect_ack_flags: u8,
+    pub connect_reason_code: u8,
+    pub variable_header_properties: Option<Vec<Property>>,
     //payload
     // no payload
 }

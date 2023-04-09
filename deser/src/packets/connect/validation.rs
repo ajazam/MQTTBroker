@@ -1,11 +1,11 @@
 pub mod encode_validation {}
 
 pub mod decode_validate {
-
     use crate::packets::connect::Connect;
     use crate::packets::ConnectPacketBuildError::{
         WillFlagNotSet, WillPayLoadNotSet, WillTopicNotSet,
     };
+    use std::error::Error;
     pub fn client_id_correctly_formatted(str: String) -> bool {
         for c in str.chars() {
             if !c.is_ascii_alphanumeric() {
@@ -16,7 +16,7 @@ pub mod decode_validate {
         true
     }
 
-    pub fn will_properties_are_valid(connect_packet: &Connect) -> anyhow::Result<()> {
+    pub fn will_properties_are_valid(connect_packet: &Connect) -> Result<(), Box<dyn Error>> {
         if is_will_flag_not_set_and_will_properties_set_error(connect_packet) {
             return Err(WillFlagNotSet.into());
         }

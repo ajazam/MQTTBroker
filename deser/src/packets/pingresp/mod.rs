@@ -7,8 +7,8 @@ use crate::packets::PacketTypes;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PingResp {
     //fixed header
-    packet_type: u8,
-    packet_type_low_nibble: u8,
+    pub packet_type: u8,
+    pub packet_type_low_nibble: u8,
     // variable header
     // no variable header
 

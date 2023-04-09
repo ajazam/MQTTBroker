@@ -1,5 +1,5 @@
 [package]
-name = "client"
+name = "common"
 version = "0.1.0"
 edition = "2021"
 
@@ -15,10 +15,3 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 paste.workspace = true
 nu-pretty-hex.workspace = true
-
-[dev-dependencies]
-quickcheck = "1"
-quickcheck_macros = "1"
-mockall = "0.11"
-test-log = {version="0.2", default-features=false, features=["trace"]}
-

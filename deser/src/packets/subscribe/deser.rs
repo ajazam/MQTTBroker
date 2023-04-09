@@ -5,6 +5,7 @@ use crate::packets::subscribe::{
 };
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for Subscribe {
     fn generate_variable_header(&self) -> BytesMut {
@@ -30,7 +31,7 @@ impl GeneratePacketParts for Subscribe {
 impl Encoder<Subscribe> for Subscribe {}
 
 impl Decoder<Subscribe> for Subscribe {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<Subscribe> {
+    fn decode(bytes: &mut BytesMut) -> Result<Subscribe, Box<dyn Error + Send + Sync>> {
         // fixed header
         let packet_with_flags = bytes.get_u8();
         let packet_type = packet_with_flags >> 4;

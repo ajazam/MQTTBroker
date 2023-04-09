@@ -3,6 +3,7 @@ use crate::packets::reason_codes::{DecodeReasonCode, SUBACK};
 use crate::packets::suback::SubAck;
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for SubAck {
     fn generate_variable_header(&self) -> BytesMut {
@@ -28,7 +29,7 @@ impl GeneratePacketParts for SubAck {
 impl Encoder<SubAck> for SubAck {}
 
 impl Decoder<SubAck> for SubAck {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<SubAck> {
+    fn decode(bytes: &mut BytesMut) -> Result<SubAck, Box<dyn Error + Send + Sync>> {
         let packet_type_with_flags = bytes.get_u8();
         let packet_type = packet_type_with_flags >> 4;
         let packet_type_low_nibble = packet_type_with_flags & 0x0f;

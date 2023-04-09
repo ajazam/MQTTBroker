@@ -3,6 +3,7 @@ use crate::packets::auth::Auth;
 use crate::packets::reason_codes::{DecodeReasonCode, AUTH};
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for Auth {
     fn generate_variable_header(&self) -> BytesMut {
@@ -25,7 +26,7 @@ impl GeneratePacketParts for Auth {
 impl Encoder<Auth> for Auth {}
 
 impl Decoder<Auth> for Auth {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<Auth> {
+    fn decode(bytes: &mut BytesMut) -> Result<Auth, Box<dyn Error + Send + Sync>> {
         // fixed header
         let packet_with_flags = bytes.get_u8();
         let packet_type = packet_with_flags >> 4;

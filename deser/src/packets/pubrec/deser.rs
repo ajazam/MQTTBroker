@@ -3,6 +3,7 @@ use crate::packets::pubrec::PubRec;
 use crate::packets::reason_codes::{DecodeReasonCode, PUBREC};
 use crate::packets::{encode_properties, Decoder, Encoder, GeneratePacketParts};
 use bytes::{Buf, BufMut, BytesMut};
+use std::error::Error;
 
 impl GeneratePacketParts for PubRec {
     fn generate_variable_header(&self) -> BytesMut {
@@ -27,7 +28,7 @@ impl GeneratePacketParts for PubRec {
 impl Encoder<PubRec> for PubRec {}
 
 impl Decoder<PubRec> for PubRec {
-    fn decode(bytes: &mut BytesMut) -> anyhow::Result<PubRec> {
+    fn decode(bytes: &mut BytesMut) -> Result<PubRec, Box<dyn Error + Send + Sync>> {
         // fixed header
         let packet_with_flags = bytes.get_u8();
         let packet_type = packet_with_flags >> 4;

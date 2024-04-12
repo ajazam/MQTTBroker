@@ -14,18 +14,17 @@ crate-type = ["lib"]
 [dependencies]
 tokio.workspace = true
 bytes.workspace = true
-thiserror.workspace = true
 lazy_static.workspace = true
 test-case.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 paste.workspace = true
 nu-pretty-hex.workspace = true
-
+thiserror.workspace = true
 
 [dev-dependencies]
 quickcheck = "1"
 quickcheck_macros = "1"
 mockall = "0.11"
-test-log = {version="0.2", default-features=false, features=["trace"]}
+test-log = { version = "0.2", default-features = false, features = ["trace"] }
 tracing-test.workspace = true

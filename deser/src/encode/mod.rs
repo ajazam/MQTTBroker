@@ -41,14 +41,16 @@ pub fn variable_byte_integer(
         encoded_byte = to_encode.rem_euclid(128u32) as u8;
         to_encode = to_encode.div_euclid(128u32);
         if to_encode > 0 {
-            encoded_byte |= 128
+            encoded_byte |= 128;
         }
+
         b.put_u8(encoded_byte);
+
         if to_encode == 0 {
             break;
         }
+        trace!("encoding variable_byte_integer {name}, value: {i:?}");
     }
-    trace!("encoding variable_byte_integer {name}, value: {i:?}");
     Ok(())
 }
 

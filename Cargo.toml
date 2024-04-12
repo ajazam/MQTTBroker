@@ -4,7 +4,7 @@ members = [
     "deser",
     "broker",
     "client",
-    "common",
+    "common"
 ]
 
 [workspace.dependencies]

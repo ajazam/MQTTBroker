@@ -1579,7 +1579,7 @@ mod test {
         let b_integer: FourByteInteger = FourByteInteger::new(269_435_455);
 
         b_prop.put_u8(Property::SessionExpiryInterval as u8);
-        b_prop.put_u32(*b_integer.as_ref());
+        b_prop.put_u32(b_integer.0);
         variable_byte_integer(
             "property size",
             &VariableByteInteger::new(b_prop.len() as u32),
